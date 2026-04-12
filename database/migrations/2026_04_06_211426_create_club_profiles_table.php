@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('club_name');
             $table->string('club_logo')->nullable();
             $table->string('email')->nullable();
-            $table->string('sports_name')->nullable();
+            $table->string('sports')->nullable();
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('country')->nullable();

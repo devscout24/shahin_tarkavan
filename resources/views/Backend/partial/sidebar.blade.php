@@ -104,6 +104,13 @@
       </a>
     </li>
 
+    <li class="menu-item {{ request()->routeIs('admin.program-bookings.*') ? 'active' : '' }}">
+      <a href="{{ route('admin.program-bookings.index') }}" class="menu-link">
+        <i class="menu-icon bi bi-cash-coin"></i>
+        <div class="text-truncate">Booking Payments</div>
+      </a>
+    </li>
+
     <li class="menu-item {{ request()->routeIs('admin.competition-levels.*') ? 'active' : '' }}">
       <a href="{{ route('admin.competition-levels.index') }}" class="menu-link">
         <i class="menu-icon bi bi-trophy"></i>

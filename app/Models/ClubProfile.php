@@ -12,13 +12,24 @@ class ClubProfile extends Model
         'club_logo',
         'email',
         'phone',
-        'sports_name',
+        'sports',
+        'sports',
         'city',
         'state',
         'country',
         'club_description',
         'privacy_settings',
     ];
+
+    public function setSportsNameAttribute($value): void
+    {
+        $this->attributes['sports'] = $value;
+    }
+
+    public function getSportsNameAttribute(): ?string
+    {
+        return $this->attributes['sports'] ?? null;
+    }
 
     public function user()
     {

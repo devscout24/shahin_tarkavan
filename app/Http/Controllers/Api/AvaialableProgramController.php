@@ -15,7 +15,7 @@ class AvaialableProgramController extends Controller
     {
         try {
             $user = Auth::guard('api')->user();
-            $sportsName = trim((string) $request->query('sports_name', $request->input('sports_name', '')));
+            $sportsName = trim((string) $request->query('sports', $request->input('sports_name', '')));
 
             if (! $user) {
                 return response()->json([
@@ -56,6 +56,37 @@ class AvaialableProgramController extends Controller
 
                 if ($value <= 7) {
                     return 'U6/U7';
+                }
+                if ($value <= 8) {
+                    return 'U8';
+                }
+                if ($value <= 9) {
+                    return 'U9';
+                }
+                if ($value <= 10) {
+                    return 'U10';
+                }
+                if ($value <= 11) {
+                    return 'U11';
+                }
+                if ($value <= 12) {
+                    return 'U12';
+                }
+                if ($value <= 13) {
+                    return 'U13';
+                }
+                if ($value <= 14) {
+                    return 'U14';
+
+                }
+                if ($value <= 15) {
+                    return 'U15';
+                }
+                if ($value <= 16) {
+                    return 'U16';
+                }
+                if ($value <= 17) {
+                    return 'U17';
                 }
 
                 return 'U' . $value;

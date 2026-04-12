@@ -555,9 +555,20 @@ class CoacherProgramController extends Controller
                 return $this->forbidden([], 'Authentication required to submit a review.', 200);
             }
 
-            $program = ErProgram::query()->find($programId);
+            if (! in_array((string) $user->role, ['parent', 'player'], true)) {
+                return $this->forbidden([], 'Only parent or player can submit a review.', 403);
+            }
+
+            $program = ErProgram::query()
+                ->with(['coach:id,allow_parent_player_reviews'])
+                ->find($programId);
+
             if (! $program) {
                 return $this->notFound([], 'Program not found.', 200);
+            }
+
+            if (! (bool) ($program->coach?->allow_parent_player_reviews ?? true)) {
+                return $this->forbidden([], 'This coach does not allow parent/player reviews.', 403);
             }
 
             // Check if user has already submitted a review for this program

@@ -12,9 +12,11 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthOtpController::class, 'login']);
     Route::post('/login-password', [AuthOtpController::class, 'loginPassword']);
     Route::post('/verify-login-otp', [AuthOtpController::class, 'verifyLoginOtp']);
+    Route::post('/logout', [AuthOtpController::class, 'logout']);
 
     Route::post('/forgot-password/request-otp', [AuthOtpController::class, 'requestPasswordResetOtp']);
-    Route::post('/forget-password', [AuthOtpController::class, 'forgetPassword']);
+
+    Route::post('/forget/password', [AuthOtpController::class, 'forgetPassword']);
     Route::post('/check-otp', [AuthOtpController::class, 'checkOtp']);
     Route::post('/forgot-password/reset', [AuthOtpController::class, 'resetPasswordWithOtp']);
     Route::post('/reset-password', [AuthOtpController::class, 'resetPassword']);

@@ -186,4 +186,25 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(TeamPlayer::class, 'club_id', 'id');
     }
+
+    public function stripeSet()
+    {
+        return $this->hasOne(StripeSet::class, 'user_id', 'id');
+    }
+
+    public function MatchBidsCreated()
+    {
+        return $this->hasMany(MatchBid::class, 'created_club_id', 'id');
+    }
+
+    public function MatchBidsRequested()
+    {
+        return $this->hasMany(MatchBid::class, 'requested_club_id', 'id');
+    }
+
+    public function chatMessages()
+    {
+        return $this->hasMany(Chat::class, 'user_id', 'id');
+    }
+
 }

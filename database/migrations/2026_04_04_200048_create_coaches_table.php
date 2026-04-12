@@ -38,10 +38,13 @@ return new class extends Migration
 
             $table->enum('privacy_settings', ['public', 'players_and_teams', 'private'])
                 ->default('public');
-             
+
+            $table->boolean('visible_reviews')->default(true);
+            $table->boolean('allow_parent_player_reviews')->default(true);
+
                 $table->string('city')->nullable();
                 $table->string('country')->nullable();
-        
+
             $table->foreign('current_role')->references('id')->on('coach_positions')->onDelete('set null');
 
             $table->timestamps();

@@ -14,6 +14,7 @@ class AthleteProfiles extends Model
         'nationality',
         'email',
         'sports_selection',
+        'sports',
         'jersey_number',
         'dominant_foot',
         'club_team',
@@ -34,6 +35,16 @@ class AthleteProfiles extends Model
         'city',
         'country',
     ];
+
+    public function setSportsSelectionAttribute($value): void
+    {
+        $this->attributes['sports'] = $value;
+    }
+
+    public function getSportsSelectionAttribute(): ?string
+    {
+        return $this->attributes['sports'] ?? null;
+    }
 
     public function parent()
     {

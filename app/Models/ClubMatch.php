@@ -18,4 +18,15 @@ class ClubMatch extends Model
     {
         return $this->belongsTo(ClubTeam::class, 'club_team_id', 'id');
     }
+
+        public function opponentClub()
+        {
+            return $this->belongsTo(ClubProfile::class, 'opponent_club_id', 'id');
+        }
+
+        public function matchBids()
+        {
+            return $this->hasMany(MatchBid::class, 'match_id', 'id');
+        }
+
 }

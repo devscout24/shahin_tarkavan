@@ -21,7 +21,7 @@ return new class extends Migration
                 $table->string('nationality');
                 $table->string('email')->nullable();
 
-                $table->string('sports_selection');
+                $table->string('sports')->nullable();
                 $table->integer('jersey_number')->nullable();
                 $table->string('dominant_foot')->nullable();
 

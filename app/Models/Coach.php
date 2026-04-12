@@ -29,9 +29,21 @@ class Coach extends Model
         'data_driving_training',
         'coach_profile_pic',
         'privacy_settings',
+        'visible_reviews',
+        'allow_parent_player_reviews',
         'city',
-        'country', 
+        'country',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'player_centric_approach' => 'boolean',
+            'data_driving_training' => 'boolean',
+            'visible_reviews' => 'boolean',
+            'allow_parent_player_reviews' => 'boolean',
+        ];
+    }
 
     public function user()
     {
@@ -51,6 +63,18 @@ class Coach extends Model
     public function erPrograms()
     {
         return $this->hasMany(ErProgram::class, 'coach_id', 'id');
+    }
+
+    public function programReviews()
+    {
+        return $this->hasManyThrough(
+            ErProgramReview::class,
+            ErProgram::class,
+            'coach_id',
+            'er_program_id',
+            'id',
+            'id'
+        );
     }
 
     public function currentPosition()

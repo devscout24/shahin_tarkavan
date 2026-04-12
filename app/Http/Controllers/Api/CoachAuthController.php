@@ -27,6 +27,8 @@ class CoachAuthController extends Controller
             'email' => 'required|email|max:255',
             'sports' => 'required|string|max:255',
             'coaching_title' => 'required',
+            'visible_reviews' => 'nullable|boolean',
+            'allow_parent_player_reviews' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -79,6 +81,12 @@ class CoachAuthController extends Controller
                     'coaching_philosophy' => $request->coaching_philosophy ?? null,
                     'player_centric_approach' => $request->boolean('player_centric_approach', false),
                     'data_driving_training' => $request->boolean('data_driving_training', false),
+                    'visible_reviews' => $request->has('visible_reviews')
+                        ? $request->boolean('visible_reviews')
+                        : ($existingCoach?->visible_reviews ?? true),
+                    'allow_parent_player_reviews' => $request->has('allow_parent_player_reviews')
+                        ? $request->boolean('allow_parent_player_reviews')
+                        : ($existingCoach?->allow_parent_player_reviews ?? true),
                 ]
             );
 
@@ -145,6 +153,8 @@ class CoachAuthController extends Controller
 
             $coach = Coach::query()
                 ->with(['coachingTitles:id,coach_id,title', 'media:id,coach_id,image', 'currentPosition:id,name'])
+                ->withAvg('programReviews', 'rating')
+                ->withCount('programReviews')
                 ->where('user_id', $user->id)
                 ->first();
 
@@ -153,7 +163,10 @@ class CoachAuthController extends Controller
             }
 
             $titles = $coach->coachingTitles->pluck('title')->toArray();
-            // $avgRating = $coach->ratings()->avg('rating');
+            $overallAvgRating = $coach->visible_reviews
+                ? round((float) ($coach->program_reviews_avg_rating ?? 0), 2)
+                : null;
+
             $data = [
                 'coach_id' => $coach->id,
                 'visibility' => $coach->status === 'approve' ? 'public' : 'pending',
@@ -172,6 +185,10 @@ class CoachAuthController extends Controller
                     'coaching_education' => $coach->coaching_education,
                     'player_centric_approach' => (bool) $coach->player_centric_approach,
                     'data_driving_training' => (bool) $coach->data_driving_training,
+                    'visible_reviews' => (bool) $coach->visible_reviews,
+                    'allow_parent_player_reviews' => (bool) $coach->allow_parent_player_reviews,
+                    'overall_avg_rating' => $overallAvgRating,
+                    'total_reviews' => $coach->visible_reviews ? (int) $coach->program_reviews_count : 0,
                 ],
                 'coaching_titles' => $titles,
                 'coach_media' => $coach->media
@@ -224,6 +241,98 @@ class CoachAuthController extends Controller
         $media->delete();
 
         return $this->success([], 'Media deleted successfully', 200);
+    }
+
+    public function coachList(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'search' => 'nullable|string|max:100',
+            'sport' => 'nullable|string|max:100',
+            'position_id' => 'nullable|integer|exists:coach_positions,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->validationError($validator->errors(), 'Validation failed', 422);
+        }
+
+        try {
+            $search = trim((string) $request->input('search', ''));
+            $sport = trim((string) $request->input('sport', ''));
+            $positionId = $request->input('position_id');
+
+            $query = Coach::query()
+                ->with([
+                    'coachingTitles:id,coach_id,title',
+                    'media:id,coach_id,image',
+                    'currentPosition:id,name',
+                ])
+                ->withAvg('programReviews', 'rating')
+                ->withCount('programReviews')
+                ->where('status', 'approve')
+                ->latest('id');
+
+            if ($search !== '') {
+                $query->where(function ($builder) use ($search): void {
+                    $builder->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('last_name', 'like', '%' . $search . '%')
+                        ->orWhere('sports', 'like', '%' . $search . '%')
+                        ->orWhere('city', 'like', '%' . $search . '%')
+                        ->orWhere('country', 'like', '%' . $search . '%')
+                        ->orWhereHas('currentPosition', function ($positionQuery) use ($search): void {
+                            $positionQuery->where('name', 'like', '%' . $search . '%');
+                        });
+                });
+            }
+
+            if ($sport !== '') {
+                $query->where('sports', 'like', '%' . $sport . '%');
+            }
+
+            if (! empty($positionId)) {
+                $query->where('current_role', (int) $positionId);
+            }
+
+            $items = $query->get()->map(function (Coach $coach) {
+                return [
+                    'id' => $coach->id,
+                    'name' => trim((string) $coach->name . ' ' . (string) $coach->last_name),
+                    'sports' => $coach->sports,
+                    'email' => $coach->email,
+                    'nationality' => $coach->nationality,
+                    'city' => $coach->city,
+                    'country' => $coach->country,
+                    'profile_image' => ! empty($coach->coach_profile_pic) ? asset($coach->coach_profile_pic) : null,
+                    'current_role' => $coach->currentPosition
+                        ? ['id' => (int) $coach->currentPosition->id, 'name' => $coach->currentPosition->name]
+                        : null,
+                    'years_of_experience' => $coach->years_of_experience,
+                    'visible_reviews' => (bool) $coach->visible_reviews,
+                    'allow_parent_player_reviews' => (bool) $coach->allow_parent_player_reviews,
+                    'overall_avg_rating' => (bool) $coach->visible_reviews
+                        ? round((float) ($coach->program_reviews_avg_rating ?? 0), 2)
+                        : null,
+                    'total_reviews' => (bool) $coach->visible_reviews
+                        ? (int) $coach->program_reviews_count
+                        : 0,
+                    'coaching_titles' => $coach->coachingTitles
+                        ->pluck('title')
+                        ->filter()
+                        ->values(),
+                    'media' => $coach->media
+                        ->map(fn($item) => [
+                            'id' => $item->id,
+                            'image' => ! empty($item->image) ? asset($item->image) : null,
+                        ])
+                        ->values(),
+                ];
+            })->values();
+
+            return $this->success([
+                'items' => $items,
+            ], 'Coach list fetched successfully', 200);
+        } catch (\Exception $e) {
+            return $this->errors([], $e->getMessage(), 500);
+        }
     }
 
     public function editdata()

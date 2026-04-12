@@ -9,6 +9,7 @@ use App\Http\Controllers\Backend\CompetitionLevelController;
 use App\Http\Controllers\Backend\DynamicPageController;
 use App\Http\Controllers\Backend\OrganizationTypeController;
 use App\Http\Controllers\Backend\PlayerPositionController;
+use App\Http\Controllers\Backend\ProgramBookingPaymentController;
 use App\Http\Controllers\Backend\CoachPositionController;
 use App\Http\Controllers\Backend\RolePermissionController;
 use App\Http\Controllers\Backend\SettingsController;
@@ -117,5 +118,12 @@ Route::middleware('auth')->group(function () {
         Route::get('/{coachPosition}/edit', [CoachPositionController::class, 'edit'])->name('edit');
         Route::put('/{coachPosition}', [CoachPositionController::class, 'update'])->name('update');
         Route::delete('/{coachPosition}', [CoachPositionController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('admin/program-bookings')->name('admin.program-bookings.')->middleware('permission:manage settings')->group(function () {
+        Route::get('/', [ProgramBookingPaymentController::class, 'index'])->name('index');
+        Route::get('/data', [ProgramBookingPaymentController::class, 'data'])->name('data');
+        Route::get('/{booking}/view', [ProgramBookingPaymentController::class, 'view'])->name('view');
+        Route::post('/{booking}/payout', [ProgramBookingPaymentController::class, 'payout'])->name('payout');
     });
 });
