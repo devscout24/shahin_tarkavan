@@ -54,6 +54,15 @@ return new class extends Migration
                 $table->boolean('is_blocked')->default(false);
                 $table->string('city')->nullable();
                 $table->string('country')->nullable();
+
+                $table->string('preview')->nullable();
+                
+                $table->string('facebook_link')->nullable();
+                $table->string('twitter_link')->nullable();
+                $table->string('instagram_link')->nullable();
+                $table->string('tiktok_link')->nullable();   
+                $table->string('whatsapp_link')->nullable(); 
+                
                 // Foreign Keys
                 $table->foreign('parent_id')
                     ->references('id')

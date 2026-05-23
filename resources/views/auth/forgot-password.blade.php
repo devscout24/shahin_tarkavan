@@ -61,6 +61,22 @@
     <!-- Helpers -->
     <script src="{{ $assetPath }}/assets/vendor/js/helpers.js"></script>
     <script src="{{ $assetPath }}/assets/js/config.js"></script>
+
+    <style>
+        /* Guard against stale/stray backdrop layers dimming auth screens. */
+        .layout-overlay,
+        .offcanvas-backdrop,
+        .modal-backdrop,
+        .fade.show {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+        }
+
+        body {
+            overflow: auto !important;
+        }
+    </style>
 </head>
 
 <body>

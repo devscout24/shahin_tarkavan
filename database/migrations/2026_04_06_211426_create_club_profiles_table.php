@@ -21,7 +21,15 @@ return new class extends Migration
             $table->string('city')->nullable();
             $table->string('state')->nullable();
             $table->string('country')->nullable();
-            $table->longText('club_description')->nullable();
+             $table->longText('club_description')->nullable();
+
+               $table->string('facebook_link')->nullable();
+                $table->string('twitter_link')->nullable();
+                $table->string('instagram_link')->nullable();
+                $table->string('tiktok_link')->nullable();   
+                $table->string('whatsapp_link')->nullable(); 
+
+            
             $table->enum("privacy_settings",["public","private",'players','coach_and_players'])->default('public');
             $table->timestamps();
         });

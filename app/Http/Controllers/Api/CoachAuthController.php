@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\City;
 use App\Models\Coach;
 use App\Models\CoachMedia;
 use App\Models\CoachingTitle;
+use App\Models\Country;
+use App\Models\SportOption;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class CoachAuthController extends Controller
 {
@@ -25,7 +29,14 @@ class CoachAuthController extends Controller
             'gender' => 'required|in:male,female',
             'nationality' => 'required|string|max:255',
             'email' => 'required|email|max:255',
-            'sports' => 'required|string|max:255',
+            'country' => 'nullable|string',
+            'city' => 'nullable|string',
+            'city_id' => 'nullable|integer|exists:cities,id',
+            'sport_option_id' => [
+                'nullable',
+
+            ],
+            'sports' => 'nullable|string|max:255',
             'coaching_title' => 'required',
             'visible_reviews' => 'nullable|boolean',
             'allow_parent_player_reviews' => 'nullable|boolean',
@@ -39,7 +50,33 @@ class CoachAuthController extends Controller
             DB::beginTransaction();
 
             $user = Auth::guard('api')->user();
+
             $existingCoach = Coach::query()->where('user_id', $user?->id)->first();
+            $countryName = $request->filled('country') ? trim($request->input('country')) : ($request->country ?? null);
+            $cityName = $request->filled('city') ? trim($request->input('city')) : ($request->city ?? null);
+
+            $resolvedCityId = $cityName ? City::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($cityName))])->value('id') : null;
+            $resolvedCountryId = $countryName ? Country::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($countryName))])->value('id') : null;
+
+            $cityId = $resolvedCityId ? (int) $resolvedCityId : null;
+            $countryId = $resolvedCountryId ? (int) $resolvedCountryId : null;
+
+            if ($cityId && ! $countryId) {
+                $countryId = City::query()->where('id', $cityId)->value('country_id');
+            }
+
+            if ($cityId && $countryId) {
+                $cityBelongsToCountry = City::query()
+                    ->where('id', $cityId)
+                    ->where('country_id', $countryId)
+                    ->exists();
+
+                if (! $cityBelongsToCountry) {
+                    DB::rollBack();
+
+                    return $this->validationError(['city' => ['Selected city does not belong to selected country.']], 'Validation failed', 422);
+                }
+            }
 
             if (! $user || $user->role !== 'coach') {
                 DB::rollBack();
@@ -60,6 +97,9 @@ class CoachAuthController extends Controller
                 $coachProfilePicPath = $path . $filename;
             }
 
+            $sportOptionId = SportOption::resolveIdForAudience('coach', $request->input('sport_option_id', $request->input('sports')));
+            $sportOptionName = $sportOptionId ? SportOption::query()->where('id', $sportOptionId)->value('name') : $request->input('sports');
+
             $coach = Coach::query()->updateOrCreate(
                 ['user_id' => $user->id],
                 [
@@ -70,15 +110,28 @@ class CoachAuthController extends Controller
                     'status' => $request->status ?? 'pending',
                     'nationality' => $request->nationality,
                     'email' => $request->email,
-                    'sports' => $request->sports,
-                    'city' => $request->city ?? null,
-                    'country' => $request->country ?? null,
+                    'sport_option_id' => $sportOptionId,
+                    'sports' => $sportOptionName,
+                    'city' => $cityName,
+                    'city_id' => $cityId,
+                    'country' => $countryName,
+                    'country_id' => $countryId,
                     'coach_profile_pic' => $coachProfilePicPath ?? null,
                     'current_role' => $request->current_role ?? null,
                     'years_of_experience' => $request->years_of_experience ?? null,
                     'highest_education' => $request->highest_education ?? null,
                     'coaching_education' => $request->coaching_education ?? null,
                     'coaching_philosophy' => $request->coaching_philosophy ?? null,
+
+
+                    'facebook_link' => $request->facebook_link,
+                    'twitter_link' => $request->twitter_link,
+                    'instagram_link' => $request->instagram_link,
+                    'tiktok_link' => $request->tiktok_link,
+                    'whatsapp_link' => $request->whatsapp_link,
+                    'is_verified'=>true,
+
+
                     'player_centric_approach' => $request->boolean('player_centric_approach', false),
                     'data_driving_training' => $request->boolean('data_driving_training', false),
                     'visible_reviews' => $request->has('visible_reviews')
@@ -169,12 +222,20 @@ class CoachAuthController extends Controller
 
             $data = [
                 'coach_id' => $coach->id,
+                'user_id' => $coach->user_id,
+                'user_status' => $coach->user?->status,
                 'visibility' => $coach->status === 'approve' ? 'public' : 'pending',
                 'profile' => [
                     'name' => trim(($coach->name ?? '') . ' ' . ($coach->last_name ?? '')),
+                    'sport_option_id' => $coach->sport_option_id,
+                    'sport_option' => $coach->sportOption
+                        ? ['id' => (int) $coach->sportOption->id, 'name' => $coach->sportOption->name]
+                        : null,
                     'sports' => $coach->sports,
                     'email' => $coach->email,
                     'nationality' => $coach->nationality,
+                    'city_id' => $coach->city_id,
+                    'country_id' => $coach->country_id,
                     'profile_image' => $coach->coach_profile_pic ? asset($coach->coach_profile_pic) : null,
                     'bio' => $coach->coaching_philosophy,
                     'current_role' => $coach->currentPosition
@@ -186,6 +247,7 @@ class CoachAuthController extends Controller
                     'player_centric_approach' => (bool) $coach->player_centric_approach,
                     'data_driving_training' => (bool) $coach->data_driving_training,
                     'visible_reviews' => (bool) $coach->visible_reviews,
+                    'is_verified'=>(bool) $coach->is_verified,
                     'allow_parent_player_reviews' => (bool) $coach->allow_parent_player_reviews,
                     'overall_avg_rating' => $overallAvgRating,
                     'total_reviews' => $coach->visible_reviews ? (int) $coach->program_reviews_count : 0,
@@ -296,11 +358,17 @@ class CoachAuthController extends Controller
                 return [
                     'id' => $coach->id,
                     'name' => trim((string) $coach->name . ' ' . (string) $coach->last_name),
+                    'sport_option_id' => $coach->sport_option_id,
+                    'sport_option' => $coach->sportOption
+                        ? ['id' => (int) $coach->sportOption->id, 'name' => $coach->sportOption->name]
+                        : null,
                     'sports' => $coach->sports,
                     'email' => $coach->email,
                     'nationality' => $coach->nationality,
                     'city' => $coach->city,
+                    'city_id' => $coach->city_id,
                     'country' => $coach->country,
+                    'country_id' => $coach->country_id,
                     'profile_image' => ! empty($coach->coach_profile_pic) ? asset($coach->coach_profile_pic) : null,
                     'current_role' => $coach->currentPosition
                         ? ['id' => (int) $coach->currentPosition->id, 'name' => $coach->currentPosition->name]

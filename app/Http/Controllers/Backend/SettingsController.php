@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Setting;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class SettingsController extends Controller
@@ -59,12 +58,12 @@ class SettingsController extends Controller
         if ($request->hasFile('site_logo')) {
             $oldLogo = Setting::getValue('website', 'site_logo');
 
-           if($oldLogo && file_exists(public_path($oldLogo))) {
-               unlink(public_path($oldLogo));
+            if ($oldLogo && file_exists(public_path($oldLogo))) {
+                unlink(public_path($oldLogo));
             }
 
-            $file=$request->file('site_logo');
-            $filename = time().'_'.$file->getClientOriginalName();
+            $file = $request->file('site_logo');
+            $filename = time() . '_' . $file->getClientOriginalName();
             $path = 'uploads/settings/';
             $file->move(public_path($path), $filename);
             Setting::setValue('website', 'site_logo', $path . $filename);
@@ -131,6 +130,27 @@ class SettingsController extends Controller
         return back()->with('status', 'Stripe settings updated.');
     }
 
+    public function voting(): View
+    {
+        return view('Backend.settings.voting', [
+            'settings' => Setting::getGroup('voting'),
+        ]);
+    }
+
+    public function updateVoting(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'provencial_monthly_limit' => ['required', 'integer', 'min:1', 'max:1000'],
+            'professional_monthly_limit' => ['required', 'integer', 'min:1', 'max:1000'],
+        ]);
+
+        foreach ($validated as $key => $value) {
+            Setting::setValue('voting', $key, (string) $value);
+        }
+
+        return back()->with('status', 'Voting limits updated.');
+    }
+
     public function dynamicPage(): View
     {
         return view('Backend.settings.dynamic_page', [
@@ -152,3 +172,4 @@ class SettingsController extends Controller
         return back()->with('status', 'Dynamic page content updated.');
     }
 }
+

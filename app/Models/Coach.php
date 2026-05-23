@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\CoachPosition;
+use App\Models\SportOption;
 
 class Coach extends Model
 {
@@ -19,6 +22,7 @@ class Coach extends Model
         'nationality',
         'email',
         'sports',
+        'sport_option_id',
         'coaching_title',
         'current_role',
         'years_of_experience',
@@ -33,6 +37,15 @@ class Coach extends Model
         'allow_parent_player_reviews',
         'city',
         'country',
+        'country_id',
+        'city_id',
+        'facebook_link',
+        'twitter_link',
+        'instagram_link',
+
+        'tiktok_link',
+        'whatsapp_link',
+        'preview',
     ];
 
     protected function casts(): array
@@ -43,6 +56,17 @@ class Coach extends Model
             'visible_reviews' => 'boolean',
             'allow_parent_player_reviews' => 'boolean',
         ];
+    }
+
+    public function setDobAttribute($value): void
+    {
+        if ($value === null || $value === '') {
+            $this->attributes['dob'] = null;
+
+            return;
+        }
+
+        $this->attributes['dob'] = Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
     }
 
     public function user()
@@ -77,9 +101,67 @@ class Coach extends Model
         );
     }
 
+    public function sportOption()
+    {
+        return $this->belongsTo(SportOption::class, 'sport_option_id', 'id');
+    }
+
     public function currentPosition()
     {
         return $this->belongsTo(CoachPosition::class, 'current_role', 'id');
+    }
+
+    public function getSportsDisplayAttribute(): ?string
+    {
+        if ($this->relationLoaded('sportOption') && $this->sportOption?->name) {
+            return $this->sportOption->name;
+        }
+
+        $rawSports = trim((string) ($this->sports ?? ''));
+
+        if ($rawSports === '') {
+            return null;
+        }
+
+        if (is_numeric($rawSports)) {
+            return SportOption::query()->where('id', (int) $rawSports)->value('name') ?: $rawSports;
+        }
+
+        return $rawSports;
+    }
+
+    public function getCurrentRoleDisplayAttribute(): ?string
+    {
+        if ($this->relationLoaded('currentPosition') && $this->currentPosition?->name) {
+            return $this->currentPosition->name;
+        }
+
+        $rawRole = $this->getAttribute('current_role');
+
+        if ($rawRole === null || $rawRole === '') {
+            return null;
+        }
+
+        if (is_numeric($rawRole)) {
+            return CoachPosition::query()->where('id', (int) $rawRole)->value('name') ?: (string) $rawRole;
+        }
+
+        return (string) $rawRole;
+    }
+
+    public function country()
+    {
+        return $this->belongsTo(Country::class, 'country_id', 'id');
+    }
+
+    public function city()
+    {
+        return $this->belongsTo(City::class, 'city_id', 'id');
+    }
+
+    public function playerVotes()
+    {
+        return $this->hasMany(PlayerVotingSyatem::class, 'coach_id', 'id');
     }
 
     public function toArray()

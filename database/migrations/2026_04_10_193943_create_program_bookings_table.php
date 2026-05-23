@@ -26,16 +26,16 @@ return new class extends Migration
             $table->foreign('booking_time_id')->references('id')->on('er_program_times')->onDelete('cascade');
 
 
-                $table->string('stripe_payment_intent_id')->nullable();
-                $table->string('stripe_session_id')->nullable();
-                $table->string('stripe_intend_id')->nullable();
+            $table->string('stripe_payment_intent_id')->nullable();
+            $table->string('stripe_session_id')->nullable();
+            $table->string('stripe_intend_id')->nullable();
 
-                $table->decimal('amount', 10, 2)->nullable();
-                $table->decimal('tax', 5, 2)->nullable();
-                $table->decimal('after_commission_amount', 10, 2)->nullable();
-                $table->decimal('commission_amount', 10, 2)->nullable();
-                $table->decimal('discount', 10, 2)->nullable();
-                $table->string('currency')->default('usd');
+            $table->decimal('amount', 10, 2)->nullable();
+            $table->decimal('tax', 5, 2)->nullable();
+            $table->decimal('after_commission_amount', 10, 2)->nullable();
+            $table->decimal('commission_amount', 10, 2)->nullable();
+            $table->decimal('discount', 10, 2)->nullable();
+            $table->string('currency')->default('usd');
 
                 $table->enum('payment_status', [
                     'pending',

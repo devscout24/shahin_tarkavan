@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Backend;
 
 use App\Http\Controllers\Controller;
 use App\Models\Coach;
+use App\Models\CoachPosition;
+use App\Models\SportOption;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -22,7 +24,7 @@ class CoachController extends Controller
     {
         $coaches = User::query()
             ->where('role', 'coach')
-            ->with(['coachProfile:id,user_id,name,last_name,email,sports,status'])
+            ->with(['coachProfile:id,user_id,name,last_name,email,sports,sport_option_id,status', 'coachProfile.sportOption:id,name'])
             ->latest();
 
         return DataTables::eloquent($coaches)
@@ -33,7 +35,11 @@ class CoachController extends Controller
                 return $name !== '' ? $name : 'N/A';
             })
             ->addColumn('email', fn(User $user) => $user->coachProfile?->email ?? $user->email)
-            ->addColumn('sports', fn(User $user) => $user->coachProfile?->sports ?? 'N/A')
+            ->addColumn('sports', function (User $user) {
+                $profile = $user->coachProfile;
+
+                return $profile?->sports_display ?? 'N/A';
+            })
             ->addColumn('status_badge', function (User $user) {
                 $status = $user->coachProfile?->status ?? $user->status ?? 'pending';
 
@@ -64,7 +70,18 @@ class CoachController extends Controller
 
     public function show(Coach $coach): View
     {
-        $coach->load(['user:id,name,last_name,email,status', 'coachingTitles:id,coach_id,title', 'media:id,coach_id,image']);
+
+
+        $coach->load([
+            'user:id,name,last_name,email,status',
+            'coachingTitles:id,coach_id,title',
+            'media:id,coach_id,image',
+            'sportOption:id,name',
+            'currentPosition:id,name',
+        ]);
+
+        $coach->setAttribute('sports_display', $this->resolveCoachSportName($coach));
+        $coach->setAttribute('current_role_display', $this->resolveCoachPositionName($coach));
 
         return view('Backend.coaches.show', [
             'coach' => $coach,
@@ -94,4 +111,45 @@ class CoachController extends Controller
 
         return redirect()->route('admin.coaches.show', $coach)->with('status', 'Coach approved and email sent successfully.');
     }
+
+    private function resolveCoachSportName(Coach $coach): ?string
+    {
+
+
+        if ($coach->sportOption?->name) {
+            return $coach->sportOption->name;
+        }
+
+        $rawSports = trim((string) ($coach->sports ?? ''));
+
+        if ($rawSports === '') {
+            return null;
+        }
+
+        if (is_numeric($rawSports)) {
+            return SportOption::query()->where('id', (int) $rawSports)->value('name') ?: $rawSports;
+        }
+
+        return $rawSports;
+    }
+
+    private function resolveCoachPositionName(Coach $coach): ?string
+    {
+        if ($coach->currentPosition?->name) {
+            return $coach->currentPosition->name;
+        }
+
+        $rawRole = $coach->current_role;
+
+        if (is_null($rawRole) || $rawRole === '') {
+            return null;
+        }
+
+        if (is_numeric($rawRole)) {
+            return CoachPosition::query()->where('id', (int) $rawRole)->value('name') ?: (string) $rawRole;
+        }
+
+        return (string) $rawRole;
+    }
 }
+

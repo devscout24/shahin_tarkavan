@@ -4,13 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\AthleteProfiles;
+use App\Models\City;
 use App\Models\ClubProfile;
+use App\Models\ClubOrganization;
 use App\Models\ClubRecruitment;
 use App\Models\Coach;
+use App\Models\Country;
 use App\Models\ErProgram;
 use App\Models\ErProgramReview;
 use App\Models\TeamPlayer;
+use App\Support\AgeGroup;
 use App\Traits\ApiResponse;
+use App\Traits\ProgramProviderTrait;
+use App\Models\PlayerVotingSyatem;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -18,7 +24,7 @@ use Illuminate\Support\Facades\Auth;
 
 class SearchExploreController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, ProgramProviderTrait;
 
     public function list(Request $request)
     {
@@ -45,9 +51,22 @@ class SearchExploreController extends Controller
         $recruitmentType = $user->role === 'coach' ? 'coach' : ($user->role === 'club' ? null : 'player');
         $rawMinPrice = $request->input('min_price') ?? $request->query('min_price') ?? $request->input('min') ?? $request->query('min');
         $rawMaxPrice = $request->input('max_price') ?? $request->query('max_price') ?? $request->input('max') ?? $request->query('max');
+        $rawCountry = $request->input('country') ?? $request->query('country');
+        $rawCity = $request->input('city') ?? $request->query('city');
 
         $filterMinPrice = is_numeric($rawMinPrice) ? (float) $rawMinPrice : null;
         $filterMaxPrice = is_numeric($rawMaxPrice) ? (float) $rawMaxPrice : null;
+
+        $filterCountryName = $rawCountry ? trim((string) $rawCountry) : null;
+        $filterCityName = $rawCity ? trim((string) $rawCity) : null;
+
+        $filterCountryId = $filterCountryName
+            ? Country::query()->whereRaw('LOWER(name) = ?', [strtolower($filterCountryName)])->value('id')
+            : null;
+
+        $filterCityId = $filterCityName
+            ? City::query()->whereRaw('LOWER(name) = ?', [strtolower($filterCityName)])->value('id')
+            : null;
 
         if ($filterMinPrice !== null && $filterMaxPrice !== null && $filterMinPrice > $filterMaxPrice) {
             [$filterMinPrice, $filterMaxPrice] = [$filterMaxPrice, $filterMinPrice];
@@ -56,8 +75,23 @@ class SearchExploreController extends Controller
         if ($user->role == "coach" || $user->role == "club") {
             $players = AthleteProfiles::query()
                 ->whereIn('privacy_settings', ['public', 'coach_and_team'])
-                ->when($viewerContext['country'], function (Builder $query) use ($viewerContext) {
-                    $query->where('country', 'like', '%' . $viewerContext['country'] . '%');
+                ->when($filterCountryId || $filterCountryName, function (Builder $query) use ($filterCountryId, $filterCountryName) {
+                    if ($filterCountryId) {
+                        $query->where('country_id', $filterCountryId);
+
+                        return;
+                    }
+
+                    $query->where('country', 'like', '%' . $filterCountryName . '%');
+                })
+                ->when($filterCityId || $filterCityName, function (Builder $query) use ($filterCityId, $filterCityName) {
+                    if ($filterCityId) {
+                        $query->where('city_id', $filterCityId);
+
+                        return;
+                    }
+
+                    $query->where('city', 'like', '%' . $filterCityName . '%');
                 })
                 ->with([
                     'user:id,name,last_name,profile_image,address',
@@ -67,8 +101,19 @@ class SearchExploreController extends Controller
                 ->orderByDesc('id')
                 ->get()
                 ->map(function (AthleteProfiles $profile) {
+                    $provencialCount = PlayerVotingSyatem::query()
+                        ->where('vote_for_player_id', $profile->id)
+                        ->where('vote_type', 'provencial')
+                        ->count();
+
+                    $professionalCount = PlayerVotingSyatem::query()
+                        ->where('vote_for_player_id', $profile->id)
+                        ->where('vote_type', 'professional')
+                        ->count();
+
                     return [
                         'type' => 'player',
+                        'sort_key' => optional($profile->created_at)?->timestamp ?? $profile->id,
                         'child_id' => $profile->parent_id ? $profile->id : null,
                         'player_id' => $profile->user_id,
                         'athlete_profile_id' => $profile->id,
@@ -78,12 +123,17 @@ class SearchExploreController extends Controller
                         'position' => $profile->primaryPosition?->name,
                         'sports' => $profile->sports,
                         'jersey_number' => $profile->jersey_number,
+                        'city_id' => $profile->city_id,
+                        'country_id' => $profile->country_id,
                         'location' => $this->formatLocation($profile->city, $profile->country),
                         'parental_control_active' => ! is_null($profile->parent_id),
                         'games' => (int) ($profile->total_played_games ?? 0),
+                        'total_played_time' => (int) ($profile->total_played_time ?? 0),
                         'goals' => (int) ($profile->goals ?? 0),
                         'assists' => (int) ($profile->assist ?? 0),
                         'profile_image' => $this->resolveProfileImage($profile),
+                        'provencial_votes' => $provencialCount,
+                        'professional_votes' => $professionalCount,
                     ];
                 })
                 ->values();
@@ -91,8 +141,23 @@ class SearchExploreController extends Controller
             $coaches = Coach::query()
                 ->where('status', 'approve')
                 ->where('privacy_settings', 'public')
-                ->when($viewerContext['country'], function (Builder $query) use ($viewerContext) {
-                    $query->where('country', 'like', '%' . $viewerContext['country'] . '%');
+                ->when($filterCountryId || $filterCountryName, function (Builder $query) use ($filterCountryId, $filterCountryName) {
+                    if ($filterCountryId) {
+                        $query->where('country_id', $filterCountryId);
+
+                        return;
+                    }
+
+                    $query->where('country', 'like', '%' . $filterCountryName . '%');
+                })
+                ->when($filterCityId || $filterCityName, function (Builder $query) use ($filterCityId, $filterCityName) {
+                    if ($filterCityId) {
+                        $query->where('city_id', $filterCityId);
+
+                        return;
+                    }
+
+                    $query->where('city', 'like', '%' . $filterCityName . '%');
                 })
                 ->with([
                     'user:id,name,last_name,profile_image,address',
@@ -103,6 +168,7 @@ class SearchExploreController extends Controller
                 ->map(function (Coach $coach) {
                     return [
                         'type' => 'coach',
+                        'sort_key' => optional($coach->created_at)?->timestamp ?? $coach->id,
                         'coach_id' => $coach->id,
                         'user_id' => $coach->user_id,
                         'name' => trim((string) $coach->name . ' ' . (string) $coach->last_name),
@@ -112,6 +178,8 @@ class SearchExploreController extends Controller
                         'coaching_title' => $coach->currentPosition?->name ?? 'Coach',
                         'years_of_experience' => $coach->years_of_experience,
                         'sports' => $coach->sports,
+                        'city_id' => $coach->city_id,
+                        'country_id' => $coach->country_id,
                         'coaching_philosophy' => $coach->coaching_philosophy,
                         'player_centric_approach' => (bool) $coach->player_centric_approach,
                         'data_driving_training' => (bool) $coach->data_driving_training,
@@ -122,8 +190,23 @@ class SearchExploreController extends Controller
         } elseif ($user->role == "parent" || $user->role == "player") {
             $players = AthleteProfiles::query()
                 ->whereIn('privacy_settings', ['public', 'only_player'])
-                ->when($viewerContext['country'], function (Builder $query) use ($viewerContext) {
-                    $query->where('country', 'like', '%' . $viewerContext['country'] . '%');
+                ->when($filterCountryId || $filterCountryName, function (Builder $query) use ($filterCountryId, $filterCountryName) {
+                    if ($filterCountryId) {
+                        $query->where('country_id', $filterCountryId);
+
+                        return;
+                    }
+
+                    $query->where('country', 'like', '%' . $filterCountryName . '%');
+                })
+                ->when($filterCityId || $filterCityName, function (Builder $query) use ($filterCityId, $filterCityName) {
+                    if ($filterCityId) {
+                        $query->where('city_id', $filterCityId);
+
+                        return;
+                    }
+
+                    $query->where('city', 'like', '%' . $filterCityName . '%');
                 })
                 ->with([
                     'user:id,name,last_name,profile_image,address',
@@ -133,7 +216,15 @@ class SearchExploreController extends Controller
                 ->orderByDesc('id')
                 ->get()
                 ->map(function (AthleteProfiles $profile) {
+                    $provencialCount = PlayerVotingSyatem::query()
+                        ->where('vote_for_player_id', $profile->id)
+                        ->where('vote_type', 'provencial')
+                        ->count();
 
+                    $professionalCount = PlayerVotingSyatem::query()
+                        ->where('vote_for_player_id', $profile->id)
+                        ->where('vote_type', 'professional')
+                        ->count();
 
                     return [
                         'type' => 'player',
@@ -146,12 +237,17 @@ class SearchExploreController extends Controller
                         'position' => $profile->primaryPosition?->name,
                         'sports' => $profile->sports,
                         'jersey_number' => $profile->jersey_number,
+                        'city_id' => $profile->city_id,
+                        'country_id' => $profile->country_id,
                         'location' => $this->formatLocation($profile->city, $profile->country),
                         'parental_control_active' => ! is_null($profile->parent_id),
                         'games' => (int) ($profile->total_played_games ?? 0),
+                        'total_played_time' => (int) ($profile->total_played_time ?? 0),
                         'goals' => (int) ($profile->goals ?? 0),
                         'assists' => (int) ($profile->assist ?? 0),
                         'profile_image' => $this->resolveProfileImage($profile),
+                        'provencial_votes' => $provencialCount,
+                        'professional_votes' => $professionalCount,
                     ];
                 })
                 ->values();
@@ -159,8 +255,23 @@ class SearchExploreController extends Controller
             $coaches = Coach::query()
                 ->where('status', 'approve')
                 ->where('privacy_settings', 'public')
-                ->when($viewerContext['country'], function (Builder $query) use ($viewerContext) {
-                    $query->where('country', 'like', '%' . $viewerContext['country'] . '%');
+                ->when($filterCountryId || $filterCountryName, function (Builder $query) use ($filterCountryId, $filterCountryName) {
+                    if ($filterCountryId) {
+                        $query->where('country_id', $filterCountryId);
+
+                        return;
+                    }
+
+                    $query->where('country', 'like', '%' . $filterCountryName . '%');
+                })
+                ->when($filterCityId || $filterCityName, function (Builder $query) use ($filterCityId, $filterCityName) {
+                    if ($filterCityId) {
+                        $query->where('city_id', $filterCityId);
+
+                        return;
+                    }
+
+                    $query->where('city', 'like', '%' . $filterCityName . '%');
                 })
                 ->with([
                     'user:id,name,last_name,profile_image,address',
@@ -180,6 +291,8 @@ class SearchExploreController extends Controller
                         'coaching_title' => $coach->currentPosition?->name ?? 'Coach',
                         'years_of_experience' => $coach->years_of_experience,
                         'sports' => $coach->sports,
+                        'city_id' => $coach->city_id,
+                        'country_id' => $coach->country_id,
                         'coaching_philosophy' => $coach->coaching_philosophy,
                         'player_centric_approach' => (bool) $coach->player_centric_approach,
                         'data_driving_training' => (bool) $coach->data_driving_training,
@@ -187,6 +300,17 @@ class SearchExploreController extends Controller
                     ];
                 })
                 ->values();
+        }
+
+        if (empty($players)) {
+            $players = [];
+        } else {
+            $players = collect($players)->values()->all();
+        }
+        if (empty($coaches)) {
+            $coaches = [];
+        } else {
+            $coaches = collect($coaches)->values()->all();
         }
 
         $clubs = ClubProfile::query()
@@ -200,17 +324,25 @@ class SearchExploreController extends Controller
 
                 $query->whereIn('privacy_settings', ['public', 'players', 'coach_and_players']);
             })
-            ->when($viewerContext['country'] || $viewerContext['city'], function (Builder $query) use ($viewerContext) {
-                $query->where(function (Builder $locationQuery) use ($viewerContext) {
-                    if ($viewerContext['country']) {
-                        $locationQuery->where('country', 'like', '%' . $viewerContext['country'] . '%');
+            ->when($filterCountryId || $filterCityId || $filterCountryName || $filterCityName, function (Builder $query) use ($filterCountryId, $filterCityId, $filterCountryName, $filterCityName) {
+                $query->where(function (Builder $locationQuery) use ($filterCountryId, $filterCityId, $filterCountryName, $filterCityName) {
+                    if ($filterCountryId) {
+                        $locationQuery->where('country_id', $filterCountryId);
+                    } elseif ($filterCountryName) {
+                        $locationQuery->where('country', 'like', '%' . $filterCountryName . '%');
                     }
 
-                    if ($viewerContext['city']) {
-                        if ($viewerContext['country']) {
-                            $locationQuery->orWhere('city', 'like', '%' . $viewerContext['city'] . '%');
+                    if ($filterCityId) {
+                        if ($filterCountryId || $filterCountryName) {
+                            $locationQuery->orWhere('city_id', $filterCityId);
                         } else {
-                            $locationQuery->where('city', 'like', '%' . $viewerContext['city'] . '%');
+                            $locationQuery->where('city_id', $filterCityId);
+                        }
+                    } elseif ($filterCityName) {
+                        if ($filterCountryId || $filterCountryName) {
+                            $locationQuery->orWhere('city', 'like', '%' . $filterCityName . '%');
+                        } else {
+                            $locationQuery->where('city', 'like', '%' . $filterCityName . '%');
                         }
                     }
                 });
@@ -219,14 +351,46 @@ class SearchExploreController extends Controller
             ->orderByDesc('id')
             ->get()
             ->map(function (ClubProfile $club) {
+                // Get organization type for this club
+                $organization = ClubOrganization::query()
+                    ->where('user_id', $club->user_id)
+                    ->with('organizationType:id,name')
+                    ->first();
+
+                // Get coaches associated with this club's teams
+                $clubCoaches = Coach::query()
+                    ->where(function (Builder $query) use ($club) {
+                        $query->whereHas('user.clubTeams', function (Builder $teamQuery) use ($club) {
+                            $teamQuery->where('club_id', $club->user_id);
+                        })->orWhere('user_id', $club->user_id);
+                    })
+                    ->with('currentPosition:id,name')
+                    ->limit(5)
+                    ->get()
+                    ->map(function ($coach) {
+                        return [
+                            'coach_id' => $coach->id,
+                            'name' => trim((string) ($coach->name ?? '') . ' ' . (string) ($coach->last_name ?? '')),
+                            'coaching_title' => $coach->coaching_title,
+                            'position' => $coach->currentPosition?->name,
+                        ];
+                    })
+                    ->values();
+
                 return [
                     'type' => 'club',
+                    'sort_key' => optional($club->created_at)?->timestamp ?? $club->id,
                     'club_profile_id' => $club->id,
                     'club_id' => $club->user_id,
                     'club_name' => $club->club_name,
                     'sports_name' => $club->sports,
+                    'city_id' => $club->city_id,
+                    'country_id' => $club->country_id,
                     'location' => $this->formatLocation($club->city, $club->country),
                     'club_description' => $club->club_description,
+                    'organization_type_id' => $organization?->organization_type_id,
+                    'organization_type' => $organization?->organizationType?->name,
+                    'coaches' => $clubCoaches,
                     'club_logo' => ! empty($club->club_logo) ? asset($club->club_logo) : null,
                     'profile_image' => ! empty($club->user?->profile_image) ? asset($club->user->profile_image) : null,
                 ];
@@ -253,30 +417,36 @@ class SearchExploreController extends Controller
                 $query->where('program_location', 'like', '%' . $viewerContext['location'] . '%');
             })
             ->when($viewerContext['age'] !== null, function (Builder $query) use ($viewerContext) {
-                $query->where(function (Builder $ageQuery) use ($viewerContext) {
+                $userAge = (int) $viewerContext['age'];
+                $range = match (true) {
+                    $userAge <= 8 => [0, 8],
+                    $userAge <= 12 => [9, 12],
+                    $userAge <= 17 => [13, 17],
+                    $userAge <= 20 => [18, 20],
+                    $userAge <= 30 => [21, 30],
+                    default => [31, 999],
+                };
+                $query->where(function (Builder $ageQuery) use ($range) {
                     $ageQuery->whereNull('upto_age')
-                        ->orWhere('upto_age', '>=', $viewerContext['age']);
+                        ->orWhereBetween('upto_age', [$range[0], $range[1]]);
                 });
             })
-            ->with(['coach:id,user_id,name,last_name,coach_profile_pic,city,country'])
+            ->with(['coach:id,user_id,name,last_name,coach_profile_pic,city,country', 'user.club:id,user_id,club_name,club_logo,city,country', 'sportOption:id,name', 'times', 'goals'])
             ->orderBy('program_start')
             ->get()
             ->map(function (ErProgram $program) {
-                return [
-                    'type' => 'program',
-                    'program_id' => $program->id,
-                    'coach_id' => $program->coach_id,
-                    'program_name' => $program->program_name,
-                    'sport' => $program->sport,
-                    'program_price' => $program->program_price,
-                    'age_group' => $this->resolveAgeGroup($program->upto_age),
-                    'upto_age' => $program->upto_age,
-                    'location' => $program->program_location,
-                    'program_start' => optional($program->program_start)?->toDateString(),
-                    'program_end' => optional($program->program_end)?->toDateString(),
-                    'program_photo' => ! empty($program->program_photo) ? asset($program->program_photo) : null,
-                    'coach_name' => trim((string) ($program->coach?->name ?? '') . ' ' . (string) ($program->coach?->last_name ?? '')),
-                ];
+                $base = $this->formatProgramData($program);
+                $base['type'] = 'program';
+                $base['sort_key'] = optional($program->created_at)?->timestamp ?? $program->id;
+                $base['program_id'] = $program->id;
+
+                // Keep backward compatibility
+                $base['coach_id'] = $program->coach_id;
+                $base['coach_name'] = $base['provider']['name'] ?? '';
+                $base['club_name'] = $base['provider']['name'] ?? '';
+                $base['club_program_id'] = $program->id;
+
+                return $base;
             })
             ->values();
 
@@ -286,17 +456,32 @@ class SearchExploreController extends Controller
             })
             ->where('status', 'active')
             ->where(function (Builder $dateQuery) {
-                $dateQuery->whereNull('end_date')
-                    ->orWhereDate('end_date', '>=', Carbon::now()->toDateString());
+                $now = Carbon::now()->toDateString();
+                $dateQuery->where(function ($q) use ($now) {
+                    $q->whereNull('start_date')
+                        ->orWhereDate('start_date', '<=', $now);
+                })
+                    ->where(function ($q) use ($now) {
+                        $q->whereNull('end_date')
+                            ->orWhereDate('end_date', '>=', $now);
+                    });
             })
-            ->when($viewerContext['country'] || $viewerContext['city'], function (Builder $query) use ($viewerContext) {
+            ->when($viewerContext['country_id'] || $viewerContext['city_id'] || $viewerContext['country'] || $viewerContext['city'], function (Builder $query) use ($viewerContext) {
                 $query->whereHas('club.club', function (Builder $locationQuery) use ($viewerContext) {
-                    if ($viewerContext['country']) {
+                    if ($viewerContext['country_id']) {
+                        $locationQuery->where('country_id', $viewerContext['country_id']);
+                    } elseif ($viewerContext['country']) {
                         $locationQuery->where('country', 'like', '%' . $viewerContext['country'] . '%');
                     }
 
-                    if ($viewerContext['city']) {
-                        if ($viewerContext['country']) {
+                    if ($viewerContext['city_id']) {
+                        if ($viewerContext['country_id'] || $viewerContext['country']) {
+                            $locationQuery->orWhere('city_id', $viewerContext['city_id']);
+                        } else {
+                            $locationQuery->where('city_id', $viewerContext['city_id']);
+                        }
+                    } elseif ($viewerContext['city']) {
+                        if ($viewerContext['country_id'] || $viewerContext['country']) {
                             $locationQuery->orWhere('city', 'like', '%' . $viewerContext['city'] . '%');
                         } else {
                             $locationQuery->where('city', 'like', '%' . $viewerContext['city'] . '%');
@@ -305,9 +490,18 @@ class SearchExploreController extends Controller
                 });
             })
             ->when($viewerContext['age'] !== null, function (Builder $query) use ($viewerContext) {
-                $query->where(function (Builder $ageQuery) use ($viewerContext) {
+                $userAge = (int) $viewerContext['age'];
+                $range = match (true) {
+                    $userAge <= 8 => [0, 8],
+                    $userAge <= 12 => [9, 12],
+                    $userAge <= 17 => [13, 17],
+                    $userAge <= 20 => [18, 20],
+                    $userAge <= 30 => [21, 30],
+                    default => [31, 999],
+                };
+                $query->where(function (Builder $ageQuery) use ($range) {
                     $ageQuery->whereNull('upto_age')
-                        ->orWhere('upto_age', '>=', $viewerContext['age']);
+                        ->orWhereBetween('upto_age', [$range[0], $range[1]]);
                 });
             })
             ->when($user->role === 'coach' && $viewerCoachPositionId, function (Builder $query) use ($viewerCoachPositionId) {
@@ -330,14 +524,26 @@ class SearchExploreController extends Controller
 
                 return [
                     'type' => 'upcoming_event',
+                    'sort_key' => optional($event->created_at)?->timestamp ?? $event->id,
                     'recruitment_id' => $event->id,
                     'club_id' => $event->club_id,
                     'club_team_id' => $event->club_team_id,
                     'team_name' => $event->clubTeam?->name,
                     'recruitment_type' => $event->recruitment_type,
-                    'age_group' => $event->clubTeam?->age_group ?? $this->resolveAgeGroup($event->upto_age),
+                    'age_group' => AgeGroup::normalize($event->clubTeam?->age_group) ?? $this->resolveAgeGroup($event->upto_age),
                     'upto_age' => $event->upto_age,
-                    'end_date' => optional($event->end_date)?->toDateTimeString(),
+                    'start_date' => $event->start_date
+                        ? ($event->start_date instanceof \Carbon\CarbonInterface
+                            ? $event->start_date->toDateTimeString()
+                            : \Carbon\Carbon::parse($event->start_date)->toDateTimeString())
+                        : null,
+                    'end_date' => $event->end_date
+                        ? ($event->end_date instanceof \Carbon\CarbonInterface
+                            ? $event->end_date->toDateTimeString()
+                            : \Carbon\Carbon::parse($event->end_date)->toDateTimeString())
+                        : null,
+                    'city_id' => $clubProfile?->city_id,
+                    'country_id' => $clubProfile?->country_id,
                     'location' => $this->formatLocation($clubProfile?->city, $clubProfile?->country),
                     'player_position' => $event->playerPosition?->name,
                     'coach_position' => $event->coachPosition?->name,
@@ -349,11 +555,25 @@ class SearchExploreController extends Controller
             })
             ->values();
 
+        // Exclude recruitment and upcoming programs from search/explore results.
+        // Keep `$programs` intact for the separate `programs` response, but
+        // do not merge recruitments or upcoming programs into the mixed feed.
+        $upcomingEvents = [];
+
+        $players = collect($players)->values()->all();
+        $coaches = collect($coaches)->values()->all();
+        $clubs = collect($clubs)->values()->all();
+        $programs = collect($programs)->values()->all();
+        $upcomingEvents = collect($upcomingEvents)->values()->all();
+
+        // Include programs in the mixed feed, but keep recruitments excluded.
         $allData = collect($players)
             ->merge($coaches)
             ->merge($clubs)
             ->merge($programs)
-            ->merge($upcomingEvents);
+            ->merge($upcomingEvents)
+            ->sortByDesc('sort_key')
+            ->values();
 
         $rawButtonType = $request->input('button_type') ?? $request->query('button_type');
         $buttonType = strtolower(trim((string) ($rawButtonType ?? '')));
@@ -384,10 +604,24 @@ class SearchExploreController extends Controller
             'upcoming_events' => 'upcoming_events',
         ];
 
+        $buttonTypeResponseAliases = [
+            'players' => ['player', 'players'],
+            'coaches' => ['coach', 'coaches'],
+            'clubs' => ['club', 'clubs'],
+            'programs' => ['program', 'programs'],
+            'upcoming_events' => ['event', 'events', 'upcoming_event', 'upcoming_events'],
+        ];
+
         $rawPaginationNumber = $request->input('pagination_number')
             ?? $request->query('pagination_number')
             ?? $request->input('per_page')
             ?? $request->query('per_page')
+            ?? $request->input('page_size')
+            ?? $request->query('page_size')
+            ?? $request->input('pageSize')
+            ?? $request->query('pageSize')
+            ?? $request->input('limit')
+            ?? $request->query('limit')
             ?? null;
 
         $paginationNumber = is_numeric($rawPaginationNumber) && (int) $rawPaginationNumber > 0
@@ -397,30 +631,70 @@ class SearchExploreController extends Controller
         $rawPage = $request->input('page') ?? $request->query('page') ?? 1;
         $currentPage = is_numeric($rawPage) && (int) $rawPage > 0 ? (int) $rawPage : 1;
 
-        $paginateCollection = function ($items) use ($paginationNumber, $currentPage): array {
+        $buildPaginationMeta = function (int $total, int $perPage, int $page) use ($request): array {
+            $perPage = max(1, $perPage);
+            $lastPage = (int) max(1, ceil($total / $perPage));
+            $page = max(1, min($page, $lastPage));
+            $query = $request->query();
+
+            $buildUrl = function (int $targetPage) use ($request, $query): string {
+                $targetQuery = array_merge($query, ['page' => $targetPage]);
+                $queryString = http_build_query($targetQuery);
+
+                return $queryString !== ''
+                    ? $request->url() . '?' . $queryString
+                    : $request->url();
+            };
+
+            return [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'last_page' => $lastPage,
+                'has_more' => $page < $lastPage,
+                'first_page_url' => $buildUrl(1),
+                'last_page_url' => $buildUrl($lastPage),
+                'next_page_url' => $page < $lastPage ? $buildUrl($page + 1) : null,
+                'prev_page_url' => $page > 1 ? $buildUrl($page - 1) : null,
+                'links' => [
+                    [
+                        'url' => $page > 1 ? $buildUrl($page - 1) : null,
+                        'label' => '&laquo; Previous',
+                        'active' => false,
+                    ],
+                    [
+                        'url' => $buildUrl($page),
+                        'label' => (string) $page,
+                        'active' => true,
+                    ],
+                    [
+                        'url' => $page < $lastPage ? $buildUrl($page + 1) : null,
+                        'label' => 'Next &raquo;',
+                        'active' => false,
+                    ],
+                ],
+            ];
+        };
+
+        $paginateCollection = function ($items) use ($paginationNumber, $currentPage, $buildPaginationMeta): array {
             $collection = collect($items)->values();
             $total = $collection->count();
 
             if ($paginationNumber === null) {
                 return [
-                    'items' => $collection,
+                    'items' => $collection->map(fn(array $item) => $this->stripExploreItem($item))->values(),
                     'meta' => null,
                 ];
             }
 
-            $offset = ($currentPage - 1) * $paginationNumber;
-            $pagedItems = $collection->slice($offset, $paginationNumber)->values();
             $lastPage = (int) max(1, ceil($total / $paginationNumber));
+            $normalizedPage = max(1, min($currentPage, $lastPage));
+            $offset = ($normalizedPage - 1) * $paginationNumber;
+            $pagedItems = $collection->slice($offset, $paginationNumber)->values();
 
             return [
-                'items' => $pagedItems,
-                'meta' => [
-                    'current_page' => $currentPage,
-                    'per_page' => $paginationNumber,
-                    'total' => $total,
-                    'last_page' => $lastPage,
-                    'has_more' => $currentPage < $lastPage,
-                ],
+                'items' => $pagedItems->map(fn(array $item) => $this->stripExploreItem($item))->values(),
+                'meta' => $buildPaginationMeta($total, $paginationNumber, $normalizedPage),
             ];
         };
 
@@ -458,18 +732,55 @@ class SearchExploreController extends Controller
                 ->merge($upcomingEvents);
         }
 
+        if ($filterCountryId !== null) {
+            $players = collect($players)->where('country_id', $filterCountryId)->values()->all();
+            $coaches = collect($coaches)->where('country_id', $filterCountryId)->values()->all();
+            $clubs = collect($clubs)->where('country_id', $filterCountryId)->values()->all();
+            $programs = collect($programs)->where('country_id', $filterCountryId)->values()->all();
+            $upcomingEvents = collect($upcomingEvents)->where('country_id', $filterCountryId)->values()->all();
+
+            $allData = collect($players)
+                ->merge($coaches)
+                ->merge($clubs)
+                ->merge($programs)
+                ->merge($upcomingEvents);
+        }
+
+        if ($filterCityId !== null) {
+            $players = collect($players)->where('city_id', $filterCityId)->values()->all();
+            $coaches = collect($coaches)->where('city_id', $filterCityId)->values()->all();
+            $clubs = collect($clubs)->where('city_id', $filterCityId)->values()->all();
+            $programs = collect($programs)->where('city_id', $filterCityId)->values()->all();
+            $upcomingEvents = collect($upcomingEvents)->where('city_id', $filterCityId)->values()->all();
+
+            $allData = collect($players)
+                ->merge($coaches)
+                ->merge($clubs)
+                ->merge($programs)
+                ->merge($upcomingEvents);
+        }
+
         // Apply sports filter if provided
         if ($filterSports) {
             $sportsList = array_values(array_filter(array_map('trim', explode(',', $filterSports))));
+            $sportsIdList = [];
+            $sportsNameList = [];
 
-            $matchesSports = function (?string $value) use ($sportsList): bool {
+            foreach ($sportsList as $sport) {
+                if (is_numeric($sport)) {
+                    $sportsIdList[] = (int) $sport;
+                } else {
+                    $sportsNameList[] = strtolower(trim((string) $sport));
+                }
+            }
+
+            $matchesSports = function (?string $value) use ($sportsNameList): bool {
                 $value = strtolower(trim((string) $value));
-                if ($value === '' || empty($sportsList)) {
+                if ($value === '' || empty($sportsNameList)) {
                     return false;
                 }
 
-                foreach ($sportsList as $sport) {
-                    $sport = strtolower(trim((string) $sport));
+                foreach ($sportsNameList as $sport) {
                     if ($sport !== '' && strpos($value, $sport) !== false) {
                         return true;
                     }
@@ -478,24 +789,38 @@ class SearchExploreController extends Controller
                 return false;
             };
 
-            $players = collect($players)->filter(function ($item) use ($matchesSports) {
-                return $matchesSports($item['sports'] ?? null);
+            $matchesSportsId = function ($sportId) use ($sportsIdList): bool {
+                if (empty($sportsIdList)) {
+                    return false;
+                }
+                $sportId = is_numeric($sportId) ? (int) $sportId : null;
+                return $sportId !== null && in_array($sportId, $sportsIdList, true);
+            };
+
+            $players = collect($players)->filter(function ($item) use ($matchesSports, $sportsNameList) {
+                return ! empty($sportsNameList) ? $matchesSports($item['sports'] ?? null) : false;
             })->values()->all();
 
-            $coaches = collect($coaches)->filter(function ($item) use ($matchesSports) {
-                return $matchesSports($item['sports'] ?? null);
+            $coaches = collect($coaches)->filter(function ($item) use ($matchesSports, $sportsNameList) {
+                return ! empty($sportsNameList) ? $matchesSports($item['sports'] ?? null) : false;
             })->values()->all();
 
-            $clubs = collect($clubs)->filter(function ($item) use ($matchesSports) {
-                return $matchesSports($item['sports_name'] ?? null);
+            $clubs = collect($clubs)->filter(function ($item) use ($matchesSports, $sportsNameList) {
+                return ! empty($sportsNameList) ? $matchesSports($item['sports_name'] ?? null) : false;
             })->values()->all();
 
-            $programs = collect($programs)->filter(function ($item) use ($matchesSports) {
-                return $matchesSports($item['sport'] ?? null);
+            $programs = collect($programs)->filter(function ($item) use ($matchesSports, $matchesSportsId, $sportsIdList, $sportsNameList) {
+                if (! empty($sportsIdList) && $matchesSportsId($item['sport_option_id'] ?? null)) {
+                    return true;
+                }
+                if (! empty($sportsNameList) && $matchesSports($item['sport'] ?? null)) {
+                    return true;
+                }
+                return empty($sportsIdList) && empty($sportsNameList);
             })->values()->all();
 
-            $upcomingEvents = collect($upcomingEvents)->filter(function ($item) use ($matchesSports) {
-                return $matchesSports($item['sports'] ?? null);
+            $upcomingEvents = collect($upcomingEvents)->filter(function ($item) use ($matchesSports, $sportsNameList) {
+                return ! empty($sportsNameList) ? $matchesSports($item['sports'] ?? null) : false;
             })->values()->all();
 
             $allData = collect($players)
@@ -551,10 +876,12 @@ class SearchExploreController extends Controller
 
             $programs = collect($programs)->filter(function ($item) use ($matchesSearchInItem) {
                 return $matchesSearchInItem((array) $item, [
+                    'type',
                     'program_name',
                     'sport',
                     'location',
                     'coach_name',
+                    'club_name',
                     'age_group',
                     'program_price',
                 ]);
@@ -612,120 +939,7 @@ class SearchExploreController extends Controller
 
         // Apply age group filter if provided
         if ($filterAgeGroup) {
-            $normalizeAgeGroup = function (?string $value): ?string {
-                $value = strtoupper(trim((string) $value));
-                return $value !== '' ? preg_replace('/\s+/', '', $value) : null;
-            };
-
-            $resolveAgeGroupFromAge = function (?int $age) use ($normalizeAgeGroup): ?string {
-                if ($age === null) {
-                    return null;
-                }
-
-                if ($age <= 5) {
-                    return $normalizeAgeGroup('U4/U5');
-                }
-
-                if ($age <= 7) {
-                    return $normalizeAgeGroup('U6/U7');
-                }
-
-                if ($age <= 8) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 9) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 10) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 11) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 12) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-
-                if ($age <= 13) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-
-                if ($age <= 14) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 15) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 16) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 17) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                if ($age <= 18) {
-                    return $normalizeAgeGroup('U' . $age);
-                }
-
-                return $normalizeAgeGroup('Senior Team');
-            };
-
-            $canonicalRequestedAgeGroup = function (string $value) use ($normalizeAgeGroup, $resolveAgeGroupFromAge): ?string {
-                $normalized = $normalizeAgeGroup($value);
-
-                if (! $normalized) {
-                    return null;
-                }
-
-                if (preg_match('/^\d+$/', $normalized)) {
-                    return $resolveAgeGroupFromAge((int) $normalized);
-                }
-
-                if (strpos($normalized, 'SENIOR') !== false) {
-                    return $normalizeAgeGroup('Senior Team');
-                }
-
-                if (preg_match('/U\d+/i', $normalized, $match)) {
-                    return $normalizeAgeGroup($match[0]);
-                }
-
-                return $normalized;
-            };
-
-            $extractComparableAgeGroup = function (array $item) use ($normalizeAgeGroup, $resolveAgeGroupFromAge): ?string {
-                $rawAgeGroup = $normalizeAgeGroup($item['age_group'] ?? null);
-
-                if ($rawAgeGroup) {
-                    if (strpos($rawAgeGroup, 'SENIOR') !== false) {
-                        return $normalizeAgeGroup('Senior Team');
-                    }
-
-                    if (preg_match('/U\d+/i', $rawAgeGroup, $match)) {
-                        return $normalizeAgeGroup($match[0]);
-                    }
-
-                    return $rawAgeGroup;
-                }
-
-                $uptoAge = isset($item['upto_age']) ? (int) $item['upto_age'] : null;
-                return $resolveAgeGroupFromAge($uptoAge);
-            };
-
-            $targetAgeGroup = $canonicalRequestedAgeGroup($filterAgeGroup);
-
-            $matchesAgeGroup = function ($item) use ($extractComparableAgeGroup, $targetAgeGroup): bool {
-                $itemAgeGroup = $extractComparableAgeGroup((array) $item);
-                return $itemAgeGroup !== null && $targetAgeGroup !== null && $itemAgeGroup === $targetAgeGroup;
-            };
+            $matchesAgeGroup = fn($item) => AgeGroup::matchesFilter($filterAgeGroup, (array) $item);
 
             $players = collect($players)->filter($matchesAgeGroup)->values()->all();
             $coaches = collect($coaches)->filter($matchesAgeGroup)->values()->all();
@@ -741,6 +955,10 @@ class SearchExploreController extends Controller
                 ->merge($programs)
                 ->merge($upcomingEvents);
         }
+
+        $allData = collect($allData)
+            ->sortByDesc('sort_key')
+            ->values();
 
         if ($buttonType !== '' && $buttonType !== null) {
             $resolvedSection = $buttonTypeMap[$buttonType] ?? null;
@@ -760,10 +978,22 @@ class SearchExploreController extends Controller
                 default => collect(),
             };
 
+            $sectionItems = $sectionItems->sortByDesc('sort_key')->values();
+
             $paginatedSection = $paginateCollection($sectionItems);
             $sectionItems = $paginatedSection['items'];
 
-            return $this->success([
+            $sectionResponseKeys = $buttonTypeResponseAliases[$resolvedSection] ?? [$resolvedSection];
+            $sectionPayload = [];
+            // To prevent data duplication in the final merge, we don't repeat the main data array
+            // when button_type is specified. We use the 'data' key as the source of truth.
+            /*
+            foreach ($sectionResponseKeys as $responseKey) {
+                $sectionPayload[$responseKey] = $sectionItems->values();
+            }
+            */
+
+            return $this->success(array_merge([
                 'viewer' => [
                     'age' => $viewerContext['age'],
                     'age_group' => $viewerContext['age_group'],
@@ -782,14 +1012,13 @@ class SearchExploreController extends Controller
                     'page' => $currentPage,
                 ],
                 'button_type' => $buttonType,
-                $resolvedSection => $sectionItems->values(),
                 'data' => $sectionItems->values(),
-                'total' => $sectionItems->count(),
+                'total' => $paginatedSection['meta']['total'] ?? $sectionItems->count(),
                 'pagination' => $paginatedSection['meta'],
                 'age_group_counts' => [
                     $resolvedSection => $this->buildLabelCounts($sectionItems, 'age_group'),
                 ],
-            ], 'Data fetched successfully', 200);
+            ], $sectionPayload), 'Data fetched successfully', 200);
         }
 
         $paginatedAllData = $paginateCollection($allData);
@@ -812,6 +1041,8 @@ class SearchExploreController extends Controller
             'filters' => [
                 'search' => $filterSearch ?: null,
                 'location' => $filterLocation ?: null,
+                'country' => $filterCountryName ?: null,
+                'city' => $filterCityName ?: null,
                 'sports' => $filterSports ?: null,
                 'age_group' => $filterAgeGroup ?: null,
                 'min_price' => $filterMinPrice,
@@ -820,10 +1051,10 @@ class SearchExploreController extends Controller
                 'page' => $currentPage,
             ],
             'data' => $allDataItems->values(),
-            'players' => collect($players)->values(),
-            'coaches' => collect($coaches)->values(),
-            'clubs' => $clubs,
-            'programs' => $programs,
+            // 'players' => collect($players)->values(),
+            // 'coaches' => collect($coaches)->values(),
+            // 'clubs' => $clubs,
+            // 'programs' => $programs,
             'upcoming_events' => $upcomingEvents,
             'age_group_counts' => $ageGroupCounts,
             'total' => $allData->count(),
@@ -835,22 +1066,30 @@ class SearchExploreController extends Controller
     {
         $city = null;
         $country = null;
+        $cityId = null;
+        $countryId = null;
         $age = null;
 
         if ($user->role === 'player') {
             $profile = AthleteProfiles::query()->where('user_id', $user->id)->latest('id')->first();
             $city = $profile?->city;
             $country = $profile?->country;
+            $cityId = $profile?->city_id;
+            $countryId = $profile?->country_id;
             $age = $this->resolveAge($profile?->dob);
         } elseif ($user->role === 'coach') {
             $profile = Coach::query()->where('user_id', $user->id)->latest('id')->first();
             $city = $profile?->city;
             $country = $profile?->country;
+            $cityId = $profile?->city_id;
+            $countryId = $profile?->country_id;
             $age = $this->resolveAge($profile?->dob);
         } elseif ($user->role === 'parent') {
             $profile = AthleteProfiles::query()->where('parent_id', $user->id)->latest('id')->first();
-            $city = $profile?->city;
-            $country = $profile?->country;
+            $city = $profile?->city ?? $user->city?->name;
+            $country = $profile?->country ?? $user->country?->name;
+            $cityId = $profile?->city_id ?? $user->city_id;
+            $countryId = $profile?->country_id ?? $user->country_id;
             $age = $this->resolveAge($profile?->dob);
         }
 
@@ -861,8 +1100,18 @@ class SearchExploreController extends Controller
         $city = $this->normalizeLocationValue($city);
         $country = $this->normalizeLocationValue($country);
 
+        if (! $country && $countryId) {
+            $country = Country::query()->where('id', $countryId)->value('name');
+        }
+
+        if (! $city && $cityId) {
+            $city = City::query()->where('id', $cityId)->value('name');
+        }
+
         return [
+            'city_id' => $cityId,
             'city' => $city,
+            'country_id' => $countryId,
             'country' => $country,
             'location' => $city ?: $country,
             'age' => $age,
@@ -872,23 +1121,7 @@ class SearchExploreController extends Controller
 
     private function resolveAgeGroup(?int $age): ?string
     {
-        if ($age === null) {
-            return null;
-        }
-
-        if ($age <= 5) {
-            return 'U4/U5';
-        }
-
-        if ($age <= 7) {
-            return 'U6/U7';
-        }
-
-        if ($age <= 18) {
-            return 'U' . $age;
-        }
-
-        return 'Senior Team';
+        return AgeGroup::resolveFromAge($age);
     }
 
     private function formatLocation(?string $city, ?string $country): ?string
@@ -926,6 +1159,13 @@ class SearchExploreController extends Controller
             })
             ->values()
             ->all();
+    }
+
+    private function stripExploreItem(array $item): array
+    {
+        unset($item['sort_key']);
+
+        return $item;
     }
 
     private function resolveAge($dob): ?int
@@ -1061,6 +1301,8 @@ class SearchExploreController extends Controller
                         'sports' => $coach->sports,
                         'email' => $coach->email,
                         'nationality' => $coach->nationality,
+                        'city_id' => $coach->city_id,
+                        'country_id' => $coach->country_id,
                         'location' => $this->formatLocation($coach->city, $coach->country),
                         'profile_image' => $coach->coach_profile_pic ? asset($coach->coach_profile_pic) : null,
                         'bio' => $coach->coaching_philosophy,
@@ -1107,6 +1349,8 @@ class SearchExploreController extends Controller
                     'id' => $club->id,
                     'club_name' => $club->club_name,
                     'sports' => $club->sports,
+                    'city_id' => $club->city_id,
+                    'country_id' => $club->country_id,
                     'location' => $this->formatLocation($club->city, $club->country),
                     'club_description' => $club->club_description,
                     'club_logo' => ! empty($club->club_logo) ? asset($club->club_logo) : null,

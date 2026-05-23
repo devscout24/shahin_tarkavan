@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Cache;
 
 class Setting extends Model
 {
@@ -14,25 +15,38 @@ class Setting extends Model
 
     public static function getValue(string $group, string $key, ?string $default = null): ?string
     {
-        return static::query()
-            ->where('group_name', $group)
-            ->where('key', $key)
-            ->value('value') ?? $default;
+        $cacheKey = "settings:value:{$group}:{$key}";
+
+        return Cache::rememberForever($cacheKey, function () use ($group, $key, $default): ?string {
+            return static::query()
+                ->where('group_name', $group)
+                ->where('key', $key)
+                ->value('value') ?? $default;
+        });
     }
 
     public static function setValue(string $group, string $key, ?string $value): self
     {
-        return static::query()->updateOrCreate(
+        $setting = static::query()->updateOrCreate(
             ['group_name' => $group, 'key' => $key],
             ['value' => $value]
         );
+
+        Cache::forget("settings:value:{$group}:{$key}");
+        Cache::forget("settings:group:{$group}");
+
+        return $setting;
     }
 
     public static function getGroup(string $group): array
     {
-        return static::query()
-            ->where('group_name', $group)
-            ->pluck('value', 'key')
-            ->toArray();
+        $cacheKey = "settings:group:{$group}";
+
+        return Cache::rememberForever($cacheKey, function () use ($group): array {
+            return static::query()
+                ->where('group_name', $group)
+                ->pluck('value', 'key')
+                ->toArray();
+        });
     }
 }

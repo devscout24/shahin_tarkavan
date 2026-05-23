@@ -140,11 +140,11 @@
                         <div class="key">Email</div>
                         <div class="val">{{ $coach->email ?: 'N/A' }}</div>
                         <div class="key">Sports</div>
-                        <div class="val">{{ $coach->sports ?: 'N/A' }}</div>
+                        <div class="val">{{ $coach->sports_display ?: 'N/A' }}</div>
                         <div class="key">Nationality</div>
                         <div class="val">{{ $coach->nationality ?: 'N/A' }}</div>
                         <div class="key">Current Role</div>
-                        <div class="val">{{ $coach->current_role ?: 'N/A' }}</div>
+                        <div class="val">{{ $coach->current_role_display ?: 'N/A' }}</div>
                         <div class="key">Experience</div>
                         <div class="val">{{ $coach->years_of_experience ?: 'N/A' }}</div>
                         <div class="key">Highest Education</div>
@@ -247,3 +247,4 @@
     @endif
 </div>
 @endsection
+

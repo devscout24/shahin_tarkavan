@@ -55,3 +55,4 @@ class AdminProfileController extends Controller
         return back()->with('status', 'Profile updated successfully.');
     }
 }
+

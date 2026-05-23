@@ -70,3 +70,4 @@ class RolePermissionController extends Controller
         return back()->with('status', 'Role permissions synced.');
     }
 }
+

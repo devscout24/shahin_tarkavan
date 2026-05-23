@@ -12,7 +12,19 @@ class ErProgramTime extends Model
     protected $fillable = [
         'er_program_id',
         'time',
+        'slot_date',
+        'start_time',
+        'end_time',
+        'is_available',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'slot_date' => 'date',
+            'is_available' => 'boolean',
+        ];
+    }
 
     public function program()
     {

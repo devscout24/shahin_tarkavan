@@ -29,8 +29,8 @@ class PlayerPositionController extends Controller
             })
             ->addColumn('action', function (PlayerPosition $position) {
                 return '<div class="d-flex gap-1">'
-                    . '<button type="button" class="btn btn-sm btn-primary js-edit-position" data-id="' . $position->id . '">Edit</button>'
-                    . '<button type="button" class="btn btn-sm btn-danger js-delete-position" data-id="' . $position->id . '">Delete</button>'
+                    . '<button type="button" class="btn btn-sm btn-icon btn-primary js-edit-position" data-id="' . $position->id . '" title="Edit"><i class="bi bi-pencil-square text-white"></i></button>'
+                    . '<button type="button" class="btn btn-sm btn-icon btn-danger js-delete-position" data-id="' . $position->id . '" title="Delete"><i class="bi bi-trash text-white"></i></button>'
                     . '</div>';
             })
             ->rawColumns(['status_badge', 'action'])

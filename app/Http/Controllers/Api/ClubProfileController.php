@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\City;
 use App\Models\ClubOrganization;
 use App\Models\ClubProfile;
+use App\Models\Country;
 use App\Models\OrganizationType;
 use App\Traits\ApiResponse;
 
@@ -22,10 +24,14 @@ class ClubProfileController extends Controller
         $validator = Validator::make($request->all(), [
             'club_name' => 'required|string|max:255',
             'city' => 'nullable|string|max:255',
+            'city_id' => 'nullable|exists:cities,id',
             'state' => 'nullable|string|max:255',
             'country' => 'nullable|string|max:255',
+            'country' => 'nullable|string',
+            'city' => 'nullable|string',
             'phone' => 'nullable|string|max:20',
             'club_description' => 'nullable|string',
+            'sport_option_id' => 'nullable|integer|exists:sport_options,id',
             'sports_name' => 'nullable|string|max:255',
             'club_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
             'privacy_settings' => 'nullable|in:public,private,players,coach_and_players',
@@ -36,7 +42,8 @@ class ClubProfileController extends Controller
         }
 
         $user = Auth::guard('api')->user();
-
+        $user->status = 'approve';
+        $user->save();
         if (! $user) {
             return $this->forbidden([], 'Authentication required.', 401);
         }
@@ -46,6 +53,32 @@ class ClubProfileController extends Controller
         try {
 
             DB::beginTransaction();
+
+            $countryName = $request->filled('country') ? trim($request->input('country')) : $request->input('country');
+            $cityName = $request->filled('city') ? trim($request->input('city')) : $request->input('city');
+
+            $resolvedCityId = $cityName ? City::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($cityName))])->value('id') : null;
+            $resolvedCountryId = $countryName ? Country::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($countryName))])->value('id') : null;
+
+            $cityId = $resolvedCityId ? (int) $resolvedCityId : null;
+            $countryId = $resolvedCountryId ? (int) $resolvedCountryId : null;
+
+            if ($cityId && ! $countryId) {
+                $countryId = City::query()->where('id', $cityId)->value('country_id');
+            }
+
+            if ($cityId && $countryId) {
+                $cityBelongsToCountry = City::query()
+                    ->where('id', $cityId)
+                    ->where('country_id', $countryId)
+                    ->exists();
+
+                if (! $cityBelongsToCountry) {
+                    DB::rollBack();
+
+                    return $this->validationError(['city' => ['Selected city does not belong to selected country.']], 'Validation failed', 422);
+                }
+            }
 
 
             $clubLogoPath = null;
@@ -63,30 +96,48 @@ class ClubProfileController extends Controller
                 $clubLogoPath = $path . $filename;
             }
 
+            $sportOptionId = $request->filled('sport_option_id')
+                ? (int) $request->input('sport_option_id')
+                : null;
+            $sportOptionName = $sportOptionId
+                ? \App\Models\SportOption::query()->where('id', $sportOptionId)->value('name')
+                : $request->input('sports_name');
+
             if ($existingProfile) {
                 $existingProfile->update([
                     'club_name' => $request->input('club_name'),
-                    'city' => $request->input('city'),
+                    'city' => $cityName,
+                    'city_id' => $cityId,
                     'state' => $request->input('state'),
-                    'country' => $request->input('country'),
+                    'country' => $countryName,
+                    'country_id' => $countryId,
                     'phone' => $request->input('phone'),
 
                     'club_description' => $request->input('club_description'),
-                    'sports_name' => $request->input('sports_name'),
+                    'sport_option_id' => $sportOptionId ?? $existingProfile->sport_option_id,
+                    'sports' => $sportOptionName ?? $existingProfile->sports,
                     'privacy_settings' => $request->input('privacy_settings', $existingProfile->privacy_settings ?? 'public'),
                     'club_logo' => $clubLogoPath ?? $existingProfile->club_logo,
+                    'facebook_link' => $request->facebook_link ?? $existingProfile->facebook_link,
+                    'twitter_link' => $request->twitter_link ?? $existingProfile->twitter_link,
+                    'instagram_link' => $request->instagram_link ?? $existingProfile->instagram_link,
+                    'tiktok_link' => $request->tiktok_link ?? $existingProfile->tiktok_link,
+                    'whatsapp_link' => $request->whatsapp_link ?? $existingProfile->whatsapp_link
                 ]);
             } else {
                 $existingProfile = ClubProfile::create([
                     'user_id' => $user->id,
                     'club_name' => $request->input('club_name'),
-                    'city' => $request->input('city'),
+                    'city' => $cityName,
+                    'city_id' => $cityId,
                     'state' => $request->input('state'),
-                    'country' => $request->input('country'),
+                    'country' => $countryName,
+                    'country_id' => $countryId,
                     'phone' => $request->input('phone'),
 
                     'club_description' => $request->input('club_description'),
-                    'sports_name' => $request->input('sports_name'),
+                    'sport_option_id' => $sportOptionId,
+                    'sports' => $sportOptionName,
                     'privacy_settings' => $request->input('privacy_settings', 'public'),
                     'club_logo' => $clubLogoPath,
                 ]);
@@ -162,11 +213,20 @@ class ClubProfileController extends Controller
             $data = [
                 'id' => $clubProfile->id,
                 'club_name' => $clubProfile->club_name,
+
+                'email' => $user->email,
+                'profile_email' => $clubProfile->email,
                 'city' => $clubProfile->city,
+                'city_id' => $clubProfile->city_id,
                 'state' => $clubProfile->state,
                 'country' => $clubProfile->country,
+                'country_id' => $clubProfile->country_id,
                 'phone' => $clubProfile->phone,
                 'club_description' => $clubProfile->club_description,
+                'sport_option_id' => $clubProfile->sport_option_id,
+                'sport_option' => $clubProfile->sportOption
+                    ? ['id' => (int) $clubProfile->sportOption->id, 'name' => $clubProfile->sportOption->name]
+                    : null,
                 'sports_name' => $clubProfile->sports_name,
                 'privacy_settings' => $clubProfile->privacy_settings,
                 'club_logo_url' => $clubProfile->club_logo ? url($clubProfile->club_logo) : null,

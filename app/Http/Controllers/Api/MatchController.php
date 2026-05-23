@@ -21,6 +21,7 @@ class MatchController extends Controller
             'location' => 'nullable|string|max:255',
             'field_opportunity' => 'nullable|string|max:255',
             'match_id' => 'nullable|exists:club_matches,id',
+            'gender' => 'nullable|in:male,female,other',
         ]);
 
         if ($validator->fails()) {
@@ -30,30 +31,30 @@ class MatchController extends Controller
         try {
 
             $club_subscription = ClubSubscription::query()
-            ->where('club_id', Auth::guard('api')->user()->id)
-            ->where('status', 'active')
-            ->first();
-        if (!$club_subscription) {
-            return $this->errors([], 'Your subscription has expired. Please renew to create or update
+                ->where('club_id', Auth::guard('api')->user()->id)
+                ->where('status', 'active')
+                ->first();
+            if (!$club_subscription) {
+                return $this->errors([], 'Your subscription has expired. Please renew to create or update
                 a match.', 403);
-        }
+            }
 
-           $match= ClubMatch::query()
+            $match = ClubMatch::query()
                 ->where('id', $request->input('match_id'))
                 ->first();
-            if(!$match){
+            if (!$match) {
                 $match = new ClubMatch();
             }
-        $match->club_team_id = $request->input('club_team_id');
-        $match->available_date = $request->input('available_date');
-        $match->location = $request->input('location');
-        $match->field_opportunity = $request->input('field_opportunity');
+            $match->club_team_id = $request->input('club_team_id');
+            $match->available_date = $request->input('available_date');
+            $match->location = $request->input('location');
+            $match->field_opportunity = $request->input('field_opportunity');
+            $match->upto_age = $request->input('upto_age');
+            $match->gender = $request->input('gender');
 
-        $match->save();
-        return $this->success($match, 'Match created successfully', 200);
-        }
-
-        catch(\Throwable $e){
+            $match->save();
+            return $this->success($match, 'Match created successfully', 200);
+        } catch (\Throwable $e) {
             return $this->errors([], $e->getMessage(), 500);
         }
     }
@@ -61,7 +62,7 @@ class MatchController extends Controller
     public function show($match_id)
     {
 
-       $club_subscription = ClubSubscription::query()
+        $club_subscription = ClubSubscription::query()
             ->where('club_id', Auth::guard('api')->user()->id)
             ->where('status', 'active')
             ->first();
@@ -91,19 +92,26 @@ class MatchController extends Controller
     public function list()
     {
 
-              $club_subscription = ClubSubscription::query()
-                    ->where('club_id', Auth::guard('api')->user()->id)
-                    ->where('status', 'active')
-                    ->first();
-                if (!$club_subscription) {
-                    return $this->errors([], 'Your subscription has expired. Please renew to create or update
+        $club_subscription = ClubSubscription::query()
+            ->where('club_id', Auth::guard('api')->user()->id)
+            ->where('status', 'active')
+            ->first();
+        if (!$club_subscription) {
+            return $this->errors([], 'Your subscription has expired. Please renew to create or update
                         a match.', 403);
-                }
+        }
 
         try {
+            $teamIds = Auth::guard('api')->user()->clubTeams()->pluck('id');
+
+            if ($teamIds->isEmpty()) {
+                return $this->notFound([], 'Club team not found.', 404);
+            }
+
             $matches = ClubMatch::query()
                 ->with(['clubTeam:id,name'])
                 ->orderBy('available_date', 'desc')
+                ->whereIn('club_team_id', $teamIds)
                 ->get();
 
             return $this->success($matches, 'Matches fetched successfully', 200);
@@ -115,25 +123,25 @@ class MatchController extends Controller
     public function delete($match_id)
     {
 
-              $club_subscription = ClubSubscription::query()
-                    ->where('club_id', Auth::guard('api')->user()->id)
-                    ->where('status', 'active')
-                    ->first();
-                if (!$club_subscription) {
-                    return $this->errors([], 'Your subscription has expired. Please renew to create or update
+        $club_subscription = ClubSubscription::query()
+            ->where('club_id', Auth::guard('api')->user()->id)
+            ->where('status', 'active')
+            ->first();
+        if (!$club_subscription) {
+            return $this->errors([], 'Your subscription has expired. Please renew to create or update
                         a match.', 403);
-                }
+        }
 
         try {
-            $match = ClubMatch::query()
+            $matchExists = ClubMatch::query()
                 ->where('id', $match_id)
-                ->first();
+                ->exists();
 
-            if (! $match) {
+            if (! $matchExists) {
                 return $this->notFound([], 'Match not found.', 404);
             }
 
-            $match->delete();
+            ClubMatch::query()->where('id', $match_id)->delete();
 
             return $this->success([], 'Match deleted successfully', 200);
         } catch (\Throwable $e) {

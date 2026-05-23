@@ -36,6 +36,13 @@ return new class extends Migration
             $table->boolean('player_centric_approach')->default(false);
             $table->boolean('data_driving_training')->default(false);
 
+
+               $table->string('facebook_link')->nullable();
+                $table->string('twitter_link')->nullable();
+                $table->string('instagram_link')->nullable();
+                $table->string('tiktok_link')->nullable();   
+                $table->string('whatsapp_link')->nullable(); 
+
             $table->enum('privacy_settings', ['public', 'players_and_teams', 'private'])
                 ->default('public');
 

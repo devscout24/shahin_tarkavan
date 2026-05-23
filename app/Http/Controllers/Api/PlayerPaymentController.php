@@ -344,7 +344,13 @@ body {
                 ], 403);
             }
 
-            $athleteProfileIds = $this->getAthleteProfileIdsForUser($user);
+            $activeChildId = $request->header('active-child-id') ?? $request->get('active_child_id');
+
+            if ($activeChildId) {
+                $athleteProfileIds = [(int) $activeChildId];
+            } else {
+                $athleteProfileIds = $this->getAthleteProfileIdsForUser($user);
+            }
 
             if (empty($athleteProfileIds)) {
                 return response()->json([

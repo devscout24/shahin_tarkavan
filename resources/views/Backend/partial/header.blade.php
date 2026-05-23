@@ -2,7 +2,7 @@
     class="layout-navbar container-xxl navbar-detached navbar navbar-expand-xl align-items-center bg-navbar-theme"
     id="layout-navbar">
     @php
-        $authUser = auth()->user();
+        $authUser = auth()->user()?->loadMissing('roles:id,name');
         $avatarUrl = $authUser && $authUser->profile_image
             ? asset($authUser->profile_image)
             : $assetPath.'/assets/img/avatars/1.png';
@@ -13,7 +13,7 @@
         <!-- Search -->
         <div class="navbar-nav align-items-center me-auto">
             <div class="nav-item d-flex align-items-center">
-                <span class="w-px-22 h-px-22"><i class="icon-base bx bx-search icon-md"></i></span>
+                <span class="w-px-22 h-px-22"><i class="icon-base bi bi-search text-white icon-md"></i></span>
             </div>
         </div>
         <!-- /Search -->
@@ -21,7 +21,7 @@
         <ul class="navbar-nav flex-row align-items-center ms-md-auto">
              <li class="nav-item me-2">
                 <button type="button" class="btn btn-sm d-inline-flex align-items-center layout-menu-toggle sidebar-toggle-btn" aria-label="Toggle sidebar">
-                    <i class="icon-base bx bx-menu-alt-left icon-md" aria-hidden="true"></i>
+                    <i class="icon-base bi bi-list text-white icon-md" aria-hidden="true"></i>
                     <span class="menu-line-fallback ms-1" aria-hidden="true">≡</span>
                 </button>
             </li>
@@ -58,13 +58,13 @@
                         </a>
                     </li>
                     <li><div class="dropdown-divider my-1"></div></li>
-                    <li><a class="dropdown-item" href="{{ route('admin.profile') }}"><i class="icon-base bx bx-user icon-md me-3"></i><span>My Profile</span></a></li>
-                    <li><a class="dropdown-item" href="{{ route('admin.settings.admin') }}"><i class="icon-base bx bx-cog icon-md me-3"></i><span>Settings</span></a></li>
+                    <li><a class="dropdown-item" href="{{ route('admin.profile') }}"><i class="icon-base bi bi-person text-white icon-md me-3"></i><span>My Profile</span></a></li>
+                    <li><a class="dropdown-item" href="{{ route('admin.settings.admin') }}"><i class="icon-base bi bi-gear text-white icon-md me-3"></i><span>Settings</span></a></li>
                     <li><div class="dropdown-divider my-1"></div></li>
                     <li>
                         <a class="dropdown-item" href="{{ route('logout') }}"
                            onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
-                           <i class="icon-base bx bx-power-off icon-md me-3"></i><span>Log Out</span>
+                           <i class="icon-base bi bi-power text-white icon-md me-3"></i><span>Log Out</span>
                         </a>
                         <form id="logout-form" action="{{ route('logout') }}" method="POST" class="d-none">
                             @csrf
@@ -156,3 +156,4 @@ body, .layout-menu, .layout-navbar, .card {
     }
 }
 </style>
+

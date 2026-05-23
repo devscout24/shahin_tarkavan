@@ -69,7 +69,10 @@ class SubscriptionPlanController extends Controller
 
     private function stripeAmount(SubscriptionPlan $plan): int
     {
-        $effective = (float) ($plan->discount_price > 0 ? $plan->discount_price : $plan->price);
+        $price = (float) $plan->price;
+        $discount = (float) $plan->discount_price;
+
+        $effective = $discount > 0 ? max(0, $price - $discount) : $price;
 
         return (int) round($effective * 100);
     }
@@ -150,8 +153,8 @@ class SubscriptionPlanController extends Controller
             })
             ->addColumn('action', function (SubscriptionPlan $plan) {
                 return '<div class="d-flex gap-1">'
-                    . '<button type="button" class="btn btn-sm btn-primary js-edit-plan" data-id="' . $plan->id . '">Edit</button>'
-                    . '<button type="button" class="btn btn-sm btn-danger js-delete-plan" data-id="' . $plan->id . '">Delete</button>'
+                    . '<button type="button" class="btn btn-sm btn-icon btn-primary js-edit-plan" data-id="' . $plan->id . '" title="Edit"><i class="bi bi-pencil-square text-white"></i></button>'
+                    . '<button type="button" class="btn btn-sm btn-icon btn-danger js-delete-plan" data-id="' . $plan->id . '" title="Delete"><i class="bi bi-trash text-white"></i></button>'
                     . '</div>';
             })
             ->rawColumns(['billing_period_badge', 'status_badge', 'action'])

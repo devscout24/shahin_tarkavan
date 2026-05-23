@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\ChatEvent;
 use App\Http\Controllers\Controller;
+use App\Models\AthleteProfiles;
 use App\Models\Chat;
 use App\Models\ChatGallery;
 use App\Models\User;
@@ -44,32 +45,43 @@ class ChatController extends Controller
         }
 
         $user = Auth::guard('api')->user();
-            $receiver = User::find($request->receiver_id);
+        $authId = $user->id;
 
-            if ($user->role === 'coach' && in_array($receiver->role, ['player', 'parent'])) {
+        $activeChildId = $request->header('active-child-id') ?? $request->get('active_child_id');
 
-                $hasMessagedBefore = Chat::where('sender_id', $receiver->id)
-                    ->where('receiver_id', $user->id)
-                    ->exists();
-
-                if (! $hasMessagedBefore) {
-                    return response()->json([
-                        'status' => false,
-                        'message' => 'You cannot message this user until they message you first.'
-                    ], 403);
-                }
+        if ($activeChildId) {
+            $childProfile = AthleteProfiles::find($activeChildId);
+            if ($childProfile && $childProfile->user_id) {
+                $authId = $childProfile->user_id;
             }
+        }
+
+        $receiver = User::find($request->receiver_id);
+
+        if ($user->role === 'coach' && in_array($receiver->role, ['player', 'parent'])) {
+
+            $hasMessagedBefore = Chat::where('sender_id', $receiver->id)
+                ->where('receiver_id', $user->id)
+                ->exists();
+
+            if (! $hasMessagedBefore) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You cannot message this user until they message you first.'
+                ], 403);
+            }
+        }
 
         try {
             $receiverId = $request->receiver_id;
 
             $conversationId = implode('-', [
-                min(Auth::id(), $receiverId),
-                max(Auth::id(), $receiverId),
+                min($authId, $receiverId),
+                max($authId, $receiverId),
             ]);
 
             $chat = new Chat();
-            $chat->sender_id       = Auth::id();
+            $chat->sender_id       = $authId;
             $chat->receiver_id     = $receiverId;
             $chat->message         = $request->message;
             $chat->conversation_id = $conversationId;
@@ -109,7 +121,6 @@ class ChatController extends Controller
 
 
             return $this->success($chat, 'Message sent successfully');
-
         } catch (\Exception $e) {
             Log::error('Chat send error: ' . $e->getMessage());
             return $this->error($e->getMessage(), [], 500);
@@ -119,9 +130,27 @@ class ChatController extends Controller
     /**
      * GET CONVERSATION BY CONVERSATION_ID
      */
-    public function getConversation($conversation_id)
+    public function getConversation(Request $request, $conversation_id)
     {
         try {
+            $user = Auth::guard('api')->user();
+            $authId = $user->id;
+
+            $activeChildId = $request->header('active-child-id') ?? $request->get('active_child_id');
+
+            if ($activeChildId) {
+                $childProfile = AthleteProfiles::find($activeChildId);
+                if ($childProfile && $childProfile->user_id) {
+                    $authId = $childProfile->user_id;
+                }
+            }
+
+            // Mark messages as read when opening conversation
+            Chat::where('conversation_id', $conversation_id)
+                ->where('receiver_id', $authId)
+                ->where('is_read', 0)
+                ->update(['is_read' => 1]);
+
             $messages = Chat::where('conversation_id', $conversation_id)
                 ->orderBy('created_at', 'asc')
                 ->with('chatimage')
@@ -140,7 +169,6 @@ class ChatController extends Controller
             });
 
             return $this->success($messages, 'Conversation retrieved successfully');
-
         } catch (\Exception $e) {
             Log::error('Get conversation error: ' . $e->getMessage());
             return $this->error($e->getMessage(), [], 500);
@@ -192,35 +220,51 @@ class ChatController extends Controller
     /**
      * CHAT LIST
      */
-    public function getchatlist()
+    public function getchatlist(Request $request)
     {
-        $authId = Auth::guard('api')->user()->id;
+        $user = Auth::guard('api')->user();
+        $authId = $user->id;
 
-        $chats = Chat::where(function ($query) use ($authId) {
-                $query->where('sender_id', $authId)
-                      ->orWhere('receiver_id', $authId);
-            })
+        $activeChildId = $request->header('active-child-id') ?? $request->get('active_child_id');
+
+        // If parent is viewing child profile, they should see child's chats
+        // Note: Currently AthleteProfiles links to a user_id which is the athlete themselves or a child user
+        // If the system uses a separate user account for each child, this works.
+        // If child is just a profile under parent's user_id, we need to find the user_id associated with that child.
+
+        $chatUserId = $authId;
+        if ($activeChildId) {
+            $childProfile = AthleteProfiles::find($activeChildId);
+            if ($childProfile && $childProfile->user_id) {
+                $chatUserId = $childProfile->user_id;
+            }
+        }
+
+        $chats = Chat::where(function ($query) use ($chatUserId) {
+            $query->where('sender_id', $chatUserId)
+                ->orWhere('receiver_id', $chatUserId);
+        })
             ->select('conversation_id', DB::raw('MAX(created_at) as latest_time'))
             ->groupBy('conversation_id')
             ->orderByDesc('latest_time')
             ->get()
-            ->map(function ($chat) use ($authId) {
+            ->map(function ($chat) use ($chatUserId) {
 
                 $lastMessage = Chat::where('conversation_id', $chat->conversation_id)
                     ->latest()
                     ->with('chatimage')
                     ->first();
 
-                $otherUserId = $lastMessage->sender_id == $authId
+                $otherUserId = $lastMessage->sender_id == $chatUserId
                     ? $lastMessage->receiver_id
                     : $lastMessage->sender_id;
 
-                $otherUser = User::find($otherUserId);
+                $otherUser = User::with(['coachProfile', 'athleteProfile', 'club'])->find($otherUserId);
 
-                $me=User::find($authId);
+                $me = User::with(['coachProfile', 'athleteProfile', 'club'])->find($chatUserId);
 
                 $unreadCount = Chat::where('conversation_id', $chat->conversation_id)
-                    ->where('receiver_id', $authId)
+                    ->where('receiver_id', $chatUserId)
                     ->where('is_read', 0)
                     ->count();
 
@@ -228,27 +272,52 @@ class ChatController extends Controller
                     'chat_id'         => $lastMessage->id ?? '',
                     'conversation_id' => $chat->conversation_id,
                     'latest_time'     => Carbon::parse($chat->latest_time)
-                                                ->timezone(config('app.timezone'))
-                                                ->format('Y-m-d H:i:s'),
+                        ->timezone(config('app.timezone'))
+                        ->format('Y-m-d H:i:s'),
                     'message'         => $lastMessage->message ?? '',
                     'user_name'       => $otherUser->name ?? '',
                     'receiver_id'     => $otherUserId,
-                    'user_image'    => $otherUser && $otherUser->profile_image
-                                            ? asset($otherUser->profile_image)
-                                            : '',
-
-                    'my_image'    => $me && $me->profile_image
-                                            ? asset($me->profile_image)
-                                            : '',
+                    'user_image'      => $this->resolveUserImage($otherUser),
+                    'my_image'        => $this->resolveUserImage($me),
                     'chat_image'      => $lastMessage && $lastMessage->chatimage
-                                            ? asset($lastMessage->chatimage->image)
-                                            : '',
+                        ? asset($lastMessage->chatimage->image)
+                        : '',
                     'image_id'        => $lastMessage->chatimage->id ?? '',
                     'unread_count'    => $unreadCount,
                 ];
             });
 
         return $this->success($chats, 'Chats list retrieved successfully', 200);
+    }
+
+    /**
+     * Resolve user image from user table or profile tables
+     */
+    private function resolveUserImage($user)
+    {
+        if (!$user) {
+            return '';
+        }
+
+        // 1. Try User table profile image
+        if ($user->profile_image) {
+            return asset($user->profile_image);
+        }
+
+        // 2. Try role based profile images
+        if ($user->role === 'coach' && $user->coachProfile) {
+            return $user->coachProfile->coach_profile_pic ? asset($user->coachProfile->coach_profile_pic) : '';
+        }
+
+        if ($user->role === 'player' && $user->athleteProfile) {
+            return $user->athleteProfile->image ? asset($user->athleteProfile->image) : '';
+        }
+
+        if ($user->role === 'club' && $user->club) {
+            return $user->club->club_logo ? asset($user->club->club_logo) : '';
+        }
+
+        return '';
     }
 
     /**

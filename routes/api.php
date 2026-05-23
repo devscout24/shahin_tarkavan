@@ -23,7 +23,7 @@ Route::prefix('auth')->group(function () {
 
     Route::post('/resend-otp', [AuthOtpController::class, 'resendOtp']);
 
-    Route::middleware('auth:api')->group(function () {
+    Route::middleware(['auth:api', 'active.child'])->group(function () {
         Route::get('/me', [AuthOtpController::class, 'me']);
         Route::post('/refresh', [AuthOtpController::class, 'refresh']);
         Route::post('/logout', [AuthOtpController::class, 'logout']);

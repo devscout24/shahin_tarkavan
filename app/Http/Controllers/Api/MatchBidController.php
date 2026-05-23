@@ -8,6 +8,7 @@ use App\Models\ClubMatch;
 use App\Models\ClubProfile;
 use App\Models\MatchBid;
 use App\Models\User;
+use App\Support\AgeGroup;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,13 +20,30 @@ class MatchBidController extends Controller
 {
     use ApiResponse;
 
+    private function assetIfExists(?string $path): ?string
+    {
+        $path = trim((string) $path);
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        $absolutePath = public_path($path);
+
+        return file_exists($absolutePath) ? asset($path) : null;
+    }
+
     private function formatTeam($team): array
     {
         return [
             'id' => $team->id,
             'name' => $team->name,
-            'age_group' => $team->age_group,
-            'image' => ! empty($team->image) ? asset($team->image) : null,
+            'age_group' => AgeGroup::normalize($team->age_group),
+            'image' => $this->assetIfExists($team->image),
             'competition_level' => $team->competitionLevel?->name,
         ];
     }
@@ -48,7 +66,7 @@ class MatchBidController extends Controller
             'city' => $clubProfile->city,
             'state' => $clubProfile->state,
             'country' => $clubProfile->country,
-            'club_logo' => ! empty($clubProfile->club_logo) ? asset($clubProfile->club_logo) : null,
+            'club_logo' => $this->assetIfExists($clubProfile->club_logo),
             'owner' => [
                 'id' => $clubProfile->user?->id,
                 'name' => trim((string) ($clubProfile->user?->name ?? '') . ' ' . (string) ($clubProfile->user?->last_name ?? '')),
@@ -95,8 +113,8 @@ class MatchBidController extends Controller
                 'team' => $bid->match?->clubTeam ? [
                     'id' => $bid->match->clubTeam->id,
                     'name' => $bid->match->clubTeam->name,
-                    'age_group' => $bid->match->clubTeam->age_group,
-                    'image' => ! empty($bid->match->clubTeam->image) ? asset($bid->match->clubTeam->image) : null,
+                    'age_group' => AgeGroup::normalize($bid->match->clubTeam->age_group),
+                    'image' => $this->assetIfExists($bid->match->clubTeam->image),
                     'competition_level' => $bid->match->clubTeam->competitionLevel?->name,
                     'club' => [
                         'id' => $bid->match->clubTeam->club?->club?->id,
@@ -179,6 +197,7 @@ class MatchBidController extends Controller
                     'requestedClub.user.clubTeams.competitionLevel',
                 ])
                 ->when($matchId, fn($query) => $query->where('match_id', $matchId))
+                ->where('created_club_id', Auth::guard('api')->user()->club?->id)
                 ->latest('id')
                 ->get()
                 ->map(fn(MatchBid $bid) => $this->formatMatchBid($bid))
@@ -241,16 +260,25 @@ class MatchBidController extends Controller
                         ->all();
 
                     if (! empty($otherBidIds)) {
-                        MatchBid::query()
-                            ->whereIn('id', $otherBidIds)
-                            ->update(['status' => 'rejected']);
+                        foreach ($otherBidIds as $otherBidId) {
+                            MatchBid::query()
+                                ->where('id', $otherBidId)
+                                ->update(['status' => 'rejected']);
+                        }
 
                         $notifiedBidIds = array_merge($notifiedBidIds, $otherBidIds);
                     }
                 }
             });
 
-            $notifiedBids = MatchBid::with(['requestedClub.user'])->whereIn('id', array_values(array_unique($notifiedBidIds)))->get();
+            $notifiedBids = collect();
+            foreach (array_values(array_unique($notifiedBidIds)) as $notifiedBidId) {
+                $bidRecord = MatchBid::with(['requestedClub.user'])->where('id', $notifiedBidId)->first();
+
+                if ($bidRecord) {
+                    $notifiedBids->push($bidRecord);
+                }
+            }
 
             foreach ($notifiedBids as $notifiedBid) {
                 if ($notifiedBid->requestedClub?->user?->email) {

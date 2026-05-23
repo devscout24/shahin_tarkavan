@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
             $table->string('sport');
             $table->string('program_name');
+            $table->enum('program_type',['one_one','group'])->default('one_one');
             $table->decimal('program_price', 10, 2)->default(0);
             $table->string('program_location')->nullable();
             $table->date('program_start')->nullable();

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ClubMatch;
 use App\Models\ClubSubscription;
+use App\Models\ErProgram;
 use App\Models\RecruitementApply;
+use App\Support\AgeGroup;
 use App\Traits\ApiResponse;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -31,7 +33,7 @@ class ClubDashboardController extends Controller
 
         $team = $match->clubTeam;
         $competitionLevel = $team?->competitionLevel?->name;
-        $ageGroup = $team?->age_group;
+        $ageGroup = AgeGroup::normalize($team?->age_group);
         $formattedAge = array_values(array_filter([
             $competitionLevel,
             $ageGroup ? 'Age: ' . $ageGroup : null,
@@ -51,7 +53,7 @@ class ClubDashboardController extends Controller
             'team' => [
                 'id' => $team?->id,
                 'name' => $team?->name,
-                'age_group' => $team?->age_group,
+                'age_group' => AgeGroup::normalize($team?->age_group),
                 'image' => ! empty($team?->image) ? asset($team->image) : null,
                 'competition_level' => $competitionLevel,
                 'formatted_age' => implode(' | ', $formattedAge) ?: null,
@@ -157,6 +159,12 @@ class ClubDashboardController extends Controller
                 ->whereDate('available_date', '>=', $today)
                 ->count();
 
+            $programs = ErProgram::query()
+                ->with(['user:id,name,last_name,profile_image,role', 'user.club:id,user_id,club_name,club_logo,city,state,country'])
+                ->where('user_id', $user->id)
+                ->latest('id')
+                ->get();
+
             return $this->success([
                 'club_info' => [
                     'id' => $club?->id,
@@ -181,8 +189,10 @@ class ClubDashboardController extends Controller
                     'player_applications' => $playerApplications,
                     'coach_applications' => $coachApplications,
                     'upcoming_matches' => $upcomingMatches,
+                    'programs' => $programs->count(),
                 ],
                 'recent_opportunities' => $recentOpportunities,
+                'recent_programs' => $programs->take(5)->values(),
 
             ], 'Club dashboard data fetched successfully.', 200);
         } catch (\Throwable $e) {
@@ -190,56 +200,63 @@ class ClubDashboardController extends Controller
         }
     }
 
-  public function updateSettings(Request $request){
+    public function updateSettings(Request $request)
+    {
 
 
-         $validator = Validator::make($request->all(), [
-            'current_password' => 'required|string',
-            'new_password' => 'required|string|min:6|confirmed',
+        $validator = Validator::make($request->all(), [
+            'current_password' => 'nullable|string',
+            'new_password' => 'nullable|string|min:8|confirmed',
         ]);
 
         if ($validator->fails()) {
             return $this->validationError($validator->errors());
         }
 
-     try{
+        try {
 
-          $user = Auth::guard('api')->user();
+            $user = Auth::guard('api')->user();
 
-          $currentPassword  = $request->input('current_password');
-          $newPassword = $request->input('new_password');
+          if($request->input('current_password')){
+            $currentPassword  = $request->input('current_password');
+            $newPassword = $request->input('new_password');
 
-        $usercheck = Hash::check($currentPassword, $user->password);
-       if(!$usercheck){
-            return $this->errors([], 'Current password is incorrect.', 422);
-        }
-
-        $user->password = Hash::make($newPassword);
-        $user->name = $request->input('name', $user->name);
-        if($request->hasFile('club_logo')){
-             if (! empty($user->club_logo) && file_exists(public_path($user->club_logo))) {
-                unlink(public_path($user->club_logo));
+            $usercheck = Hash::check($currentPassword, $user->password);
+            if (!$usercheck) {
+                return $this->errors([], 'Current password is incorrect.', 422);
             }
-            $logo = $request->file('club_logo');
-            $logoName = time() . '_logo.' . $logo->getClientOriginalExtension();
-            $logo->move(public_path('uploads/club_logos'), $logoName);
-            $user->club_logo = 'uploads/club_logos/' . $logoName;
-        }
-        $user->save();
 
-        $clubProfile = $user->club;
-        if ($clubProfile) {
-            $clubProfile->privacy_settings =$request->privacy_settings?? $clubProfile->privacy_settings;
+            $user->password = Hash::make($newPassword);
+            $user->name = $request->input('name', $user->name);
+
+            $user->save();
+          }
+            $clubProfile = $user->club;
+           $clubProfile->club_name = $request->input('name', $user->name);
+
             $clubProfile->save();
+
+            if ($clubProfile) {
+                $clubProfile->privacy_settings = $request->privacy_settings ?? $clubProfile->privacy_settings;
+
+                if ($request->hasFile('club_logo')) {
+                    if (! empty($clubProfile->club_logo) && file_exists(public_path($clubProfile->club_logo))) {
+                        unlink(public_path($clubProfile->club_logo));
+                    }
+                    $logo = $request->file('club_logo');
+                    $filename = time() . '_' . $logo->getClientOriginalName();
+                    $path = 'uploads/club_logos/';
+                    $logo->move(public_path($path), $filename);
+                    $clubProfile->club_logo = $path.$filename;
+                }
+
+                $clubProfile->save();
+            }
+
+
+            return $this->success($clubProfile, 'Club settings updated successfully.', 200);
+        } catch (\Throwable $e) {
+            return $this->errors([], $e->getMessage(), 500);
         }
-
-
-        return $this->success( $clubProfile, 'Club settings updated successfully.', 200);
-
-     }
-     catch(\Throwable $e){
-        return $this->errors([], $e->getMessage(), 500);
-     }
-  }
-
+    }
 }

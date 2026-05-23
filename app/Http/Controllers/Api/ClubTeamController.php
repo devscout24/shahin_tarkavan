@@ -5,28 +5,47 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ClubSubscription;
 use App\Models\ClubTeam;
+use App\Models\RecruitementApply;
 use App\Models\TeamPlayer;
+use App\Support\AgeGroup;
 use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class ClubTeamController extends Controller
 {
     use   ApiResponse;
+
+    private function resolveTeamName(Request $request): ?string
+    {
+        foreach (['name', 'team_name', 'club_team_name'] as $key) {
+            $value = trim((string) $request->input($key));
+
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
 
             'name' => 'required|string|max:255',
+            // 'age_group' => ['nullable', Rule::in(AgeGroup::labels())],
             'age_group' => 'nullable|string|max:255',
-            'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:2048',
+            'gender' => 'nullable|in:male,female,other',
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp,svg|max:2048',
             'competition_level_id' => 'nullable|exists:competition_levels,id',
         ]);
 
         if ($validator->fails()) {
-            $this->errors($validator->errors(), 'Validation failed', 422);
+            return $this->errors($validator->errors(), 'Validation failed', 422);
         }
         try {
             $club_id = Auth::guard('api')->user()->id;
@@ -44,8 +63,9 @@ class ClubTeamController extends Controller
 
             $team = new ClubTeam();
             $team->club_id = $club_id;
-            $team->name = $request->name;
-            $team->age_group = $request->age_group;
+            $team->name = $this->resolveTeamName($request);
+            $team->age_group = AgeGroup::normalize($request->age_group) ?? $request->age_group;
+            $team->gender = $request->gender;
             if ($request->hasFile('image')) {
                 $file = $request->file('image');
                 $filename = time() . '_' . $file->getClientOriginalName();
@@ -74,13 +94,16 @@ class ClubTeamController extends Controller
                 ->where('status', 'active')
                 ->first();
 
-            if (! $clubSubscription) {
+            if (!$clubSubscription) {
                 return $this->notFound([], 'Active club subscription not found.', 200);
             }
 
             $perPage = $request->input('per_page', 10);
+
             $teams = ClubTeam::query()
+                ->with('competitionLevel:id,name')
                 ->where('club_id', $club_id)
+                ->orderBy('created_at', 'desc')
                 ->withCount([
                     'teamPlayers as total_players' => function ($q) {
                         $q->where(function ($query) {
@@ -98,10 +121,20 @@ class ClubTeamController extends Controller
                 return $this->notFound([], 'Club teams not found.', 200);
             }
 
+            // image asset path add
+            $data = collect($teams->items())->map(function ($team) {
+
+                $team->image = $team->image
+                    ? asset($team->image)
+                    : null;
+
+                return $team;
+            });
+
             return response()->json([
                 'status' => true,
                 'message' => 'Club teams fetched successfully',
-                'data' => $teams->items(),
+                'data' => $data,
                 'meta' => [
                     'current_page' => $teams->currentPage(),
                     'last_page' => $teams->lastPage(),
@@ -142,8 +175,9 @@ class ClubTeamController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255',
-                'age_group' => 'nullable|string|max:255',
+                'age_group' => ['nullable', Rule::in(AgeGroup::labels())],
                 'image' => 'nullable|image|mimes:jpg,jpeg,png,webp,svg|max:2048',
+                'gender' => 'nullable|in:male,female,other',
                 'competition_level_id' => 'nullable|exists:competition_levels,id',
             ]);
 
@@ -151,8 +185,9 @@ class ClubTeamController extends Controller
                 return $this->errors($validator->errors(), 'Validation failed', 422);
             }
 
-            $team->name = $request->name;
-            $team->age_group = $request->age_group;
+            $team->name = $this->resolveTeamName($request);
+            $team->age_group = AgeGroup::normalize($request->age_group) ?? $request->age_group;
+            $team->gender = $request->gender;
             if ($request->hasFile('image')) {
 
                 if ($team->image) {
@@ -281,7 +316,7 @@ class ClubTeamController extends Controller
                 })
                 ->with([
                     'coach:id,name,last_name,phone,address,profile_image,role',
-                    'coach.coachProfile:id,user_id,dob,years_of_experience,current_role,coach_profile_pic',
+                    'coach.coachProfile:id,user_id,dob,years_of_experience,current_role,coach_profile_pic,city,country',
                     'coach.coachProfile.currentPosition:id,name',
                 ])
                 ->get()
@@ -294,6 +329,7 @@ class ClubTeamController extends Controller
                     return [
                         'team_player_id' => $item->id,
                         'user_id' => $user?->id,
+                        'profile_id' => $profile?->id,
                         'name' => $this->fullName($user?->name, $user?->last_name),
                         'role' => 'coach',
                         'age' => $this->resolveAge($profile?->dob),
@@ -301,7 +337,9 @@ class ClubTeamController extends Controller
                         'experience' => $profile?->years_of_experience,
                         'phone' => $user?->phone,
                         'address' => $user?->address,
-                        'profile_image' => $profile?->coach_profile_pic ?: $user?->profile_image,
+                        'city' => $profile?->city,
+                        'country' => $profile?->country,
+                        'profile_image' => $profile?->coach_profile_pic ? asset($profile->coach_profile_pic) : ($user?->profile_image ? asset($user->profile_image) : null),
                     ];
                 })
                 ->values();
@@ -320,9 +358,9 @@ class ClubTeamController extends Controller
                 })
                 ->with([
                     'player:id,name,last_name,profile_image,role',
-                    'player.athleteProfile:id,user_id,dob,jersey_number,total_played_games,goals,assist,primary_position,image',
+                    'player.athleteProfile:id,user_id,dob,jersey_number,total_played_games,total_played_time,goals,assist,primary_position,image,city,country',
                     'player.athleteProfile.primaryPosition:id,name',
-                    'child:id,parent_id,name,last_name,dob,jersey_number,total_played_games,goals,assist,primary_position,image',
+                    'child:id,parent_id,name,last_name,dob,jersey_number,total_played_games,total_played_time,goals,assist,primary_position,image,city,country',
                     'child.primaryPosition:id,name',
                 ])
                 ->get()
@@ -334,6 +372,7 @@ class ClubTeamController extends Controller
                         'team_player_id' => $item->id,
                         'user_id' => $item->player_id,
                         'child_id' => $item->child_id,
+                        'profile_id' => $profile?->id,
                         'name' => $isChild
                             ? $this->fullName($item->child?->name, $item->child?->last_name)
                             : $this->fullName($item->player?->name, $item->player?->last_name),
@@ -343,9 +382,12 @@ class ClubTeamController extends Controller
                         'position' => $profile?->primaryPosition?->name,
                         'jersey_number' => $profile?->jersey_number,
                         'games' => (int) ($profile?->total_played_games ?? 0),
+                        'total_played_time' => (int) ($profile?->total_played_time ?? 0),
                         'goals' => (int) ($profile?->goals ?? 0),
                         'assists' => (int) ($profile?->assist ?? 0),
-                        'profile_image' => $profile?->image ?: $item->player?->profile_image,
+                        'profile_image' => $profile?->image ? asset($profile->image) : ($isChild ? null : ($item->player?->profile_image ? asset($item->player->profile_image) : null)),
+                        'city' => $profile?->city,
+                        'country' => $profile?->country,
                     ];
                 })
                 ->values();
@@ -391,7 +433,112 @@ class ClubTeamController extends Controller
 
         return $name !== '' ? $name : null;
     }
-///////////////////team player coach listing end//////////////////
+    ///////////////////team player coach listing end//////////////////
+ public function releasePlayer(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'team_player_id' => 'required|exists:team_players,id',
+        ]);
 
+        if ($validator->fails()) {
+            return $this->errors($validator->errors(), 'Validation failed', 422);
+        }
+
+        try {
+            $teamPlayer = TeamPlayer::query()
+                ->where('id', $request->input('team_player_id'))
+                ->first();
+
+            if (! $teamPlayer) {
+                return $this->notFound([], 'Team player not found.', 404);
+            }
+
+            // Remove relevant recruitment applications
+            RecruitementApply::query()
+                ->where('team_id', $teamPlayer->team_id)
+                ->where('club_id', $teamPlayer->club_id)
+                ->where(function ($query) use ($teamPlayer) {
+                    if ($teamPlayer->coach_id) {
+                        $query->where('user_id', $teamPlayer->coach_id);
+                    } elseif ($teamPlayer->player_id) {
+                        $query->where('user_id', $teamPlayer->player_id);
+                    } elseif ($teamPlayer->child_id) {
+                        $query->where('child_id', $teamPlayer->child_id);
+                    }
+                })
+                ->delete();
+
+            $teamPlayer->delete();
+
+            return $this->success([], 'Player/Coach released from team and recruitment successfully', 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error releasing player/coach: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function transferPlayer(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'team_player_id' => 'required|exists:team_players,id',
+            'new_team_id' => 'required|exists:club_teams,id',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errors($validator->errors(), 'Validation failed', 422);
+        }
+
+        try {
+            $club_id = Auth::guard('api')->user()->id;
+
+            // Find the team player record
+            $teamPlayer = TeamPlayer::query()
+                ->where('id', $request->team_player_id)
+                ->where('club_id', $club_id)
+                ->first();
+
+            if (!$teamPlayer) {
+                return $this->notFound([], 'Team player record not found or unauthorized.', 404);
+            }
+
+            // Ensure the new team belongs to the same club
+            $newTeam = ClubTeam::query()
+                ->where('id', $request->new_team_id)
+                ->where('club_id', $club_id)
+                ->first();
+
+            if (!$newTeam) {
+                return $this->notFound([], 'Target team not found or unauthorized.', 404);
+            }
+
+            // Update recruitment applications to the new team_id if they exist
+            RecruitementApply::query()
+                ->where('team_id', $teamPlayer->team_id)
+                ->where('club_id', $club_id)
+                ->where(function ($query) use ($teamPlayer) {
+                    if ($teamPlayer->coach_id) {
+                        $query->where('user_id', $teamPlayer->coach_id);
+                    } elseif ($teamPlayer->player_id) {
+                        $query->where('user_id', $teamPlayer->player_id);
+                    } elseif ($teamPlayer->child_id) {
+                        $query->where('child_id', $teamPlayer->child_id);
+                    }
+                })
+                ->update(['team_id' => $newTeam->id]);
+
+            // Update the team_id
+            $teamPlayer->team_id = $newTeam->id;
+            $teamPlayer->save();
+
+            return $this->success($teamPlayer, 'Player/Coach transferred to new team successfully', 200);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => false,
+                'message' => 'Error transferring player/coach: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
 
 }

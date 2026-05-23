@@ -24,6 +24,8 @@ class User extends Authenticatable implements JWTSubject
         'last_name',
         'phone',
         'address',
+        'country_id',
+        'city_id',
         'profile_image',
         'email',
         'password',
@@ -132,6 +134,16 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasOne(ClubProfile::class, 'user_id', 'id');
     }
 
+    public function country()
+    {
+        return $this->belongsTo(Country::class, 'country_id', 'id');
+    }
+
+    public function city()
+    {
+        return $this->belongsTo(City::class, 'city_id', 'id');
+    }
+
     public function cluborganization()
     {
         return $this->hasMany(ClubOrganization::class, 'user_id', 'id');
@@ -206,5 +218,4 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(Chat::class, 'user_id', 'id');
     }
-
 }

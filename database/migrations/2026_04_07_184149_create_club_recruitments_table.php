@@ -21,6 +21,7 @@ return new class extends Migration
             $table->foreign('club_id')->references('id')->on('users')->onDelete('cascade');
 
             $table->string('experience')->nullable();
+            $table->timestamp('start_date')->nullable();
             $table->timestamp('end_date')->nullable();
             $table->longText('description')->nullable();
             $table->integer('upto_age')->nullable();

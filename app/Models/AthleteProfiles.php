@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 
 class AthleteProfiles extends Model
@@ -15,6 +16,7 @@ class AthleteProfiles extends Model
         'email',
         'sports_selection',
         'sports',
+        'sport_option_id',
         'jersey_number',
         'dominant_foot',
         'club_team',
@@ -26,6 +28,7 @@ class AthleteProfiles extends Model
         'athlete_biography',
         'privacy_settings',
         'total_played_games',
+        'total_played_time',
         'goals',
         'assist',
         'yellow_cards',
@@ -34,7 +37,33 @@ class AthleteProfiles extends Model
         'total_saves',
         'city',
         'country',
+        'country_id',
+        'city_id',
+        'facebook_link',
+        'twitter_link',
+        'instagram_link',
+
+        'tiktok_link',
+        'whatsapp_link',
+        'preview',
+         'status',
     ];
+
+    public function setDobAttribute($value): void
+    {
+        if ($value === null || $value === '') {
+            $this->attributes['dob'] = null;
+
+            return;
+        }
+
+        $this->attributes['dob'] = Carbon::parse($value)->utc()->format('Y-m-d H:i:s');
+    }
+
+    public function sportOption()
+    {
+        return $this->belongsTo(SportOption::class, 'sport_option_id', 'id');
+    }
 
     public function setSportsSelectionAttribute($value): void
     {
@@ -56,6 +85,16 @@ class AthleteProfiles extends Model
         return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
+    public function country()
+    {
+        return $this->belongsTo(Country::class, 'country_id', 'id');
+    }
+
+    public function city()
+    {
+        return $this->belongsTo(City::class, 'city_id', 'id');
+    }
+
     public function parentAggrement()
     {
         return $this->hasOneThrough(
@@ -71,6 +110,11 @@ class AthleteProfiles extends Model
     public function strengths()
     {
         return $this->hasMany(PlayerStrength::class, 'player_profile_id', 'id');
+    }
+
+    public function seasonStats()
+    {
+        return $this->hasMany(PlayerSeasonStat::class, 'athlete_profile_id', 'id');
     }
 
     public function mediaReels()
@@ -111,6 +155,16 @@ class AthleteProfiles extends Model
     public function teamPlayers()
     {
         return $this->hasMany(TeamPlayer::class, 'child_id', 'id');
+    }
+
+    public function givenVotes()
+    {
+        return $this->hasMany(PlayerVotingSyatem::class, 'player_id', 'id');
+    }
+
+    public function receivedVotes()
+    {
+        return $this->hasMany(PlayerVotingSyatem::class, 'vote_for_player_id', 'id');
     }
 
     public function toArray()

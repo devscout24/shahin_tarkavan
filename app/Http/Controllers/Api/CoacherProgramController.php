@@ -5,58 +5,132 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Coach;
 use App\Models\ErProgram;
+use App\Models\SportOption;
 use App\Traits\ApiResponse;
+use App\Traits\ProgramProviderTrait;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class CoacherProgramController extends Controller
 {
-    use ApiResponse;
+    use ApiResponse, ProgramProviderTrait;
+
+    private function normalizeNestedValues(Request $request, string $key): array
+    {
+        $values = $request->input($key);
+
+        if (is_array($values)) {
+            return collect($values)
+                ->map(function ($value): string {
+                    if (is_array($value)) {
+                        return trim((string) ($value['value'] ?? $value['name'] ?? $value['goal'] ?? $value['time'] ?? ''));
+                    }
+
+                    return trim((string) $value);
+                })
+                ->filter()
+                ->values()
+                ->all();
+        }
+
+        return collect($request->all())
+            ->filter(function ($value, $inputKey) use ($key): bool {
+                return is_string($inputKey) && str_starts_with($inputKey, $key . '[');
+            })
+            ->map(function ($value): string {
+                if (is_array($value)) {
+                    return trim((string) ($value['value'] ?? $value['name'] ?? $value['goal'] ?? $value['time'] ?? ''));
+                }
+
+                return trim((string) $value);
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function normalizeProgramTimes(Request $request): array
+    {
+        $times = $request->input('program_times');
+
+        if (! is_array($times)) {
+            return collect($this->normalizeNestedValues($request, 'program_times'))
+                ->map(function (string $time): array {
+                    return [
+                        'time' => $time,
+                        'slot_date' => null,
+                        'start_time' => null,
+                        'end_time' => null,
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        return collect($times)
+            ->map(function ($value): array {
+                if (is_array($value)) {
+                    $time = trim((string) ($value['time'] ?? $value['label'] ?? ''));
+                    $slotDate = trim((string) ($value['slot_date'] ?? $value['date'] ?? ''));
+                    $startTime = trim((string) ($value['start_time'] ?? ''));
+                    $endTime = trim((string) ($value['end_time'] ?? ''));
+
+                    return [
+                        'time' => $time !== '' ? $time : null,
+                        'slot_date' => $slotDate !== '' ? $slotDate : null,
+                        'start_time' => $startTime !== '' ? $startTime : null,
+                        'end_time' => $endTime !== '' ? $endTime : null,
+                    ];
+                }
+
+                $time = trim((string) $value);
+
+                return [
+                    'time' => $time !== '' ? $time : null,
+                    'slot_date' => null,
+                    'start_time' => null,
+                    'end_time' => null,
+                ];
+            })
+            ->filter(function (array $slot): bool {
+                return (string) ($slot['time'] ?? '') !== ''
+                    || ! empty($slot['slot_date'])
+                    || ! empty($slot['start_time'])
+                    || ! empty($slot['end_time']);
+            })
+            ->values()
+            ->all();
+    }
+
+    private function mapProgramTimeSlot($time): array
+    {
+        return [
+            'id' => $time->id,
+            'time' => $time->time,
+            'slot_date' => optional($time->slot_date)?->toDateString(),
+            'start_time' => $time->start_time,
+            'end_time' => $time->end_time,
+            'is_available' => (bool) ($time->is_available ?? true),
+        ];
+    }
 
     private function mapProgramCard(ErProgram $program): array
     {
-        $program->loadMissing(['coach', 'times', 'goals']);
-
-        $coachName = trim(($program->coach?->name ?? '') . ' ' . ($program->coach?->last_name ?? ''));
-        $firstTime = $program->times->first();
-
-        return [
-            'id' => $program->id,
-            'program_name' => $program->program_name,
-            'sport' => $program->sport,
-            'program_price' => (float) $program->program_price,
-            'discount_price' => (float) $program->discount_price,
-            'upto_age' => $program->upto_age,
-            'program_location' => $program->program_location,
-            'program_start' => optional($program->program_start)?->toDateString(),
-            'program_end' => optional($program->program_end)?->toDateString(),
-            'program_photo' => $program->program_photo ? asset($program->program_photo) : null,
-            'status' => (string) $program->status,
-            'coach_name' => $coachName,
-            'time' => $firstTime?->time,
-            'times' => $program->times->map(function ($time) {
-                return [
-                    'id' => $time->id,
-                    'time' => $time->time,
-                ];
-            })->values(),
-            'goals' => $program->goals->map(function ($goal) {
-                return [
-                    'id' => $goal->id,
-                    'goal' => $goal->goal,
-                ];
-            })->values(),
-        ];
+        return $this->formatProgramData($program);
     }
 
 
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'sport' => 'required|string|max:255',
+            'sport_option_id' => [
+                'nullable',],
+            'sport' => 'nullable|string|max:255',
             'program_name' => 'required|string|max:255',
+            'program_type' => 'nullable|string|in:one_one,group',
             'program_price' => 'required|numeric|min:0',
             'discount_price' => 'nullable|numeric|min:0',
             'upto_age' => 'nullable|integer|min:0',
@@ -70,6 +144,10 @@ class CoacherProgramController extends Controller
             'time_label' => ['nullable', 'string'],
             'program_times' => 'nullable|array',
             'program_times.*' => 'nullable',
+            'program_times.*.time' => 'nullable|string|max:255',
+            'program_times.*.slot_date' => 'nullable|date',
+            'program_times.*.start_time' => 'nullable|date_format:H:i',
+            'program_times.*.end_time' => 'nullable|date_format:H:i',
             'goals' => 'nullable|array',
             'goals.*' => 'nullable|string|max:255',
         ]);
@@ -104,11 +182,36 @@ class CoacherProgramController extends Controller
                 $photoPath = $path . $filename;
             }
 
+            $rawSportOptionId = $request->input('sport_option_id');
+            if (is_numeric($rawSportOptionId)) {
+                $sportOptionId = (int) $rawSportOptionId;
+            } else {
+                $sportOptionId = $request->filled('sport_option_id')
+                    ? SportOption::resolveIdForAudience('coach', $request->input('sport_option_id'))
+                    : SportOption::resolveIdForAudience('coach', $request->input('sport'));
+            }
+
+            $sportName = $sportOptionId
+                ? SportOption::resolveNameForAudience('coach', $sportOptionId)
+                : null;
+
+            if ($sportName === null) {
+                $rawSport = $request->input('sport');
+                if (is_numeric($rawSport)) {
+                    DB::rollBack();
+                    return $this->validationError(['sport' => ['Invalid sport option selected.']], 'Validation failed', 422);
+                }
+
+                $sportName = is_string($rawSport) && trim($rawSport) !== '' ? trim($rawSport) : null;
+            }
+
             $program = ErProgram::query()->create([
                 'coach_id' => $coach->id,
                 'user_id' => $user->id,
-                'sport' => $request->sport,
+                'sport_option_id' => $sportOptionId,
+                'sport' => $sportName,
                 'program_name' => $request->program_name,
+                'program_type' => $request->input('program_type', 'one_one'),
                 'program_price' => $request->program_price,
                 'discount_price' => $request->discount_price ?? 0,
                 'upto_age' => $request->upto_age,
@@ -120,20 +223,20 @@ class CoacherProgramController extends Controller
                 'status' => $request->status ?? 'active',
             ]);
 
-            foreach ((array) $request->program_times as $time) {
-                if (! empty($time)) {
-                    $program->times()->create([
-                        'time' => $time,
-                    ]);
-                }
+            foreach ($this->normalizeProgramTimes($request) as $slot) {
+                $program->times()->create([
+                    'time' => $slot['time'],
+                    'slot_date' => $slot['slot_date'],
+                    'start_time' => $slot['start_time'],
+                    'end_time' => $slot['end_time'],
+                    'is_available' => true,
+                ]);
             }
 
-            foreach ((array) $request->goals as $goal) {
-                if (! empty($goal)) {
-                    $program->goals()->create([
-                        'goal' => $goal,
-                    ]);
-                }
+            foreach ($this->normalizeNestedValues($request, 'goals') as $goal) {
+                $program->goals()->create([
+                    'goal' => $goal,
+                ]);
             }
 
             DB::commit();
@@ -150,9 +253,17 @@ class CoacherProgramController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'sport' => 'required|string|max:255',
-            'program_name' => 'required|string|max:255',
-            'program_price' => 'required|numeric|min:0',
+            'sport_option_id' => [
+                'nullable',
+                // 'integer',
+                // Rule::exists('sport_options', 'id')->where(function ($query): void {
+                //     $query->where('audience', 'coach')->where('status', 'active');
+                // }),
+            ],
+            'sport' => 'nullable|string|max:255',
+            'program_name' => 'nullable|string|max:255',
+            'program_type' => 'nullable|string|in:one_one,group',
+            'program_price' => 'nullable|numeric|min:0',
             'discount_price' => 'nullable|numeric|min:0',
             'upto_age' => 'nullable|integer|min:0',
             'program_location' => 'nullable|string|max:255',
@@ -200,51 +311,58 @@ class CoacherProgramController extends Controller
                 $program->program_photo = $path . $filename;
             }
 
+            $rawSportOptionId = $request->input('sport_option_id');
+            if (is_numeric($rawSportOptionId)) {
+                $sportOptionId = (int) $rawSportOptionId;
+            } else {
+                $sportOptionId = $request->filled('sport_option_id')
+                    ? SportOption::resolveIdForAudience('coach', $request->input('sport_option_id'))
+                    : SportOption::resolveIdForAudience('coach', $request->input('sport'));
+            }
+
+            $sportName = $sportOptionId
+                ? SportOption::resolveNameForAudience('coach', $sportOptionId)
+                : null;
+
+            if ($sportName === null) {
+                $rawSport = $request->input('sport');
+                if (is_numeric($rawSport)) {
+                    DB::rollBack();
+                    return $this->validationError(['sport' => ['Invalid sport option selected.']], 'Validation failed', 422);
+                }
+
+                $sportName = is_string($rawSport) && trim($rawSport) !== '' ? trim($rawSport) : $program->sport;
+            }
+
             $program->update([
-                'sport' => $request->sport,
-                'program_name' => $request->program_name,
-                'program_price' => $request->program_price,
+                'sport_option_id' => $sportOptionId ?? $program->sport_option_id,
+                'sport' => $sportName?? $program->sport,
+                'program_name' => $request->program_name?? $program->program_name,
+                'program_type' => $request->input('program_type', $program->program_type)?? $program->program_type,
+                'program_price' => $request->program_price?? $program->program_price,
                 'discount_price' => $request->discount_price ?? $program->discount_price,
-                'upto_age' => $request->upto_age,
-                'program_location' => $request->program_location,
-                'program_start' => $request->program_start,
-                'program_end' => $request->program_end,
-                'about_program' => $request->about_program,
+                'upto_age' => $request->upto_age?? $program->upto_age,
+                'program_location' => $request->program_location?? $program->program_location,
+                'program_start' => $request->program_start?? $program->program_start,
+                'program_end' => $request->program_end?? $program->program_end,
+                'about_program' => $request->about_program?? $program->about_program,
                 'status' => $request->status ?? $program->status,
             ]);
 
             if ($request->has('program_times')) {
                 $submittedTimeIds = [];
+                $programTimes = $this->normalizeProgramTimes($request);
 
-                foreach ((array) $request->program_times as $timeData) {
-                    $timeId = null;
-                    $timeValue = null;
+                $program->times()->delete();
 
-                    if (is_array($timeData)) {
-                        $timeId = $timeData['id'] ?? null;
-                        $timeValue = $timeData['time'] ?? null;
-                    } elseif (is_string($timeData)) {
-                        $timeValue = $timeData;
-                    }
-
-                    if (! is_string($timeValue) || trim($timeValue) === '') {
-                        continue;
-                    }
-
-                    $timeValue = trim($timeValue);
-
-                    if (! empty($timeId)) {
-                        $updated = $program->times()
-                            ->where('id', $timeId)
-                            ->update(['time' => $timeValue]);
-
-                        if ($updated) {
-                            $submittedTimeIds[] = (int) $timeId;
-                            continue;
-                        }
-                    }
-
-                    $newTime = $program->times()->create(['time' => $timeValue]);
+                foreach ($programTimes as $slot) {
+                    $newTime = $program->times()->create([
+                        'time' => $slot['time'],
+                        'slot_date' => $slot['slot_date'],
+                        'start_time' => $slot['start_time'],
+                        'end_time' => $slot['end_time'],
+                        'is_available' => true,
+                    ]);
                     $submittedTimeIds[] = $newTime->id;
                 }
 
@@ -257,35 +375,11 @@ class CoacherProgramController extends Controller
 
             if ($request->has('goals')) {
                 $submittedGoalIds = [];
+                $goals = $this->normalizeNestedValues($request, 'goals');
 
-                foreach ((array) $request->goals as $goalData) {
-                    $goalId = null;
-                    $goalValue = null;
+                $program->goals()->delete();
 
-                    if (is_array($goalData)) {
-                        $goalId = $goalData['id'] ?? null;
-                        $goalValue = $goalData['goal'] ?? null;
-                    } elseif (is_string($goalData)) {
-                        $goalValue = $goalData;
-                    }
-
-                    if (! is_string($goalValue) || trim($goalValue) === '') {
-                        continue;
-                    }
-
-                    $goalValue = trim($goalValue);
-
-                    if (! empty($goalId)) {
-                        $updated = $program->goals()
-                            ->where('id', $goalId)
-                            ->update(['goal' => $goalValue]);
-
-                        if ($updated) {
-                            $submittedGoalIds[] = (int) $goalId;
-                            continue;
-                        }
-                    }
-
+                foreach ($goals as $goalValue) {
                     $newGoal = $program->goals()->create(['goal' => $goalValue]);
                     $submittedGoalIds[] = $newGoal->id;
                 }
@@ -448,53 +542,18 @@ class CoacherProgramController extends Controller
                     ];
                 });
 
-            return $this->success([
-                'program' => [
-                    'id' => $program->id,
-                    'program_name' => $program->program_name,
-                    'sport' => $program->sport,
-                    'program_price' => (float) $program->program_price,
-                    'discount_price' => (float) $program->discount_price,
-                    'upto_age' => $program->upto_age,
-                    'program_location' => $program->program_location,
-                    'program_start' => optional($program->program_start)?->toDateString(),
-                    'program_end' => optional($program->program_end)?->toDateString(),
-                    'program_photo' => $program->program_photo ? asset($program->program_photo) : null,
-                    'status' => $program->status,
-                    'about_program' => $program->about_program,
-                    'times' => $program->times->map(function ($time) {
-                        return [
-                            'id' => $time->id,
-                            'time' => $time->time,
-                        ];
-                    })->values(),
-                    'goals' => $program->goals->map(function ($goal) {
-                        return [
-                            'id' => $goal->id,
-                            'goal' => $goal->goal,
-                        ];
-                    })->values(),
-                ],
-                'coach' => [
-                    'id' => $program->coach?->id,
-                    'name' => $coachName,
-                    'email' => $program->coach?->email,
-                    'profile_image' => $program->coach?->coach_profile_pic ? asset($program->coach->coach_profile_pic) : null,
-                    'bio' => $program->coach?->bio,
-                    'title' => $program->coach?->coachingTitles->map(function ($item) {
-                        return [
-                            'id' => $item->id,
-                            'title' => $item->title,
-                        ];
-                    })->toArray(),
-                ],
+            $data = $this->formatProgramData($program);
 
-                'review_summary' => [
-                    'average_rating' => $averageRating,
-                    'total_reviews' => $ratingsCount,
-                    'rating_breakdown' => $ratingBreakdown,
-                ],
-                'recent_feedback' => $recentFeedback,
+            $data['review_summary'] = [
+                'average_rating' => $averageRating,
+                'total_reviews' => $ratingsCount,
+                'rating_breakdown' => $ratingBreakdown,
+            ];
+
+            $data['recent_feedback'] = $recentFeedback;
+
+            return $this->success([
+                'program' => $data,
             ], 'Program fetched successfully', 200);
         } catch (\Exception $e) {
             return $this->errors([], $e->getMessage(), 500);

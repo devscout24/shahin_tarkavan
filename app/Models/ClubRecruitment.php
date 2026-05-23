@@ -14,6 +14,13 @@ class ClubRecruitment extends Model
         'coach_position_id',
         'club_team_id',
         'recruitment_type',
+        'gender',
+        'start_date',
+        'end_date',
+        'experience',
+        'description',
+        'upto_age',
+        'status'
     ];
 
     public function playerPosition()

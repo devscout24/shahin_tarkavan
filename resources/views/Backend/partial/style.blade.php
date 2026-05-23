@@ -9,7 +9,7 @@
     <meta name="description" content="" />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="../assets/img/favicon/favicon.ico" />
+    <link rel="icon" type="image/x-icon" href="{{ $assetPath }}/assets/img/favicon/favicon.ico" />
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -18,7 +18,9 @@
       href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap"
       rel="stylesheet" />
 
-    <link rel="stylesheet" href="../assets/vendor/fonts/iconify-icons.css" />
+    <link rel="stylesheet" href="{{ $assetPath }}/assets/vendor/fonts/boxicons.css" />
+    <link rel="stylesheet" href="{{ $assetPath }}/assets/vendor/fonts/fontawesome.css" />
+    <link rel="stylesheet" href="{{ $assetPath }}/assets/vendor/fonts/flag-icons.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
 
     <!-- Core CSS -->
@@ -45,3 +47,4 @@
 
     <script src="{{ $assetPath}}/assets/js/config.js"></script>
   </head>
+

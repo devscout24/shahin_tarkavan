@@ -4,6 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Mail\ForgetPasswordMail;
+use App\Models\AthleteProfiles;
+use App\Models\ClubProfile;
+use App\Models\Coach;
+use App\Models\ClubSubscription;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Notifications\OtpCodeNotification;
@@ -254,9 +258,21 @@ class AuthOtpController extends Controller
                 $user->save();
                 $user->makeHidden(['password', 'created_at', 'updated_at']);
                 $token = JWTAuth::fromUser($user);
+                $profileId = $this->resolveProfileId($user);
+
+                $subscriptionActive = false;
+                if ($user->role === 'club') {
+                    $subscriptionActive = ClubSubscription::query()
+                        ->where('club_id', $user->id)
+                        ->where('status', 'active')
+                        ->exists();
+                }
+
                 $data = [
                     'token' => $token,
-                    'user' => $user
+                    'user' => $user,
+                    'profile_id' => $profileId,
+                    'is_subscription_active' => $subscriptionActive,
                 ];
                 return $this->success($data, 'Login successfully');
             }
@@ -395,12 +411,38 @@ class AuthOtpController extends Controller
 
             $accountInfo = $user; // now this will have updated last_login_role
 
+            $subscriptionActive = false;
+            if ($user->role === 'club') {
+                $subscriptionActive = ClubSubscription::query()
+                    ->where('club_id', $user->id)
+                    ->where('status', 'active')
+                    ->exists();
+            }
+
             return $this->success([
                 'token' => $token,
                 'account_info' => $accountInfo,
+                'is_subscription_active' => $subscriptionActive,
             ], 'Account switched successfully');
         } catch (\Exception $e) {
             return $this->error([], $e->getMessage());
         }
+    }
+
+    private function resolveProfileId(User $user): ?int
+    {
+        if ($user->role === 'player') {
+            return AthleteProfiles::query()->where('user_id', $user->id)->value('id');
+        }
+
+        if ($user->role === 'coach') {
+            return Coach::query()->where('user_id', $user->id)->value('id');
+        }
+
+        if ($user->role === 'club') {
+            return ClubProfile::query()->where('user_id', $user->id)->value('id');
+        }
+
+        return null;
     }
 }

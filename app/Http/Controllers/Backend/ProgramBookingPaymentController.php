@@ -16,10 +16,26 @@ use Yajra\DataTables\Facades\DataTables;
 
 class ProgramBookingPaymentController extends Controller
 {
-    private function getActiveCommission(): ?Commission
+    private function getActiveCommissionForRole(?string $role, ?int $ownerUserId = null): ?Commission
     {
+        $normalizedRole = strtolower((string) $role);
+        if (! in_array($normalizedRole, ['coach', 'club'], true)) {
+            $normalizedRole = 'all';
+        }
+
         return Commission::query()
             ->where('status', 'active')
+            ->where(function ($query) use ($normalizedRole, $ownerUserId): void {
+                if ($ownerUserId) {
+                    $query->where('user_id', $ownerUserId);
+                }
+
+                $query->orWhere(function ($nested) use ($normalizedRole): void {
+                    $nested->whereNull('user_id')
+                        ->whereIn('applies_to', [$normalizedRole, 'all']);
+                });
+            })
+            ->orderByRaw('CASE WHEN user_id = ? THEN 0 WHEN applies_to = ? THEN 1 ELSE 2 END', [$ownerUserId ?: 0, $normalizedRole])
             ->latest('id')
             ->first();
     }
@@ -32,7 +48,9 @@ class ProgramBookingPaymentController extends Controller
         $subtotal = max(0.0, $amount - $discount);
         $taxAmount = ($subtotal * $taxPercent) / 100;
         $gross = round($subtotal + $taxAmount, 2);
-        $commission = $this->getActiveCommission();
+        $ownerRole = strtolower((string) ($booking->coach?->role ?? 'all'));
+        $ownerUserId = (int) ($booking->coach?->id ?? 0);
+        $commission = $this->getActiveCommissionForRole($ownerRole, $ownerUserId);
 
         if (! $commission) {
             return [
@@ -88,7 +106,7 @@ class ProgramBookingPaymentController extends Controller
                 'program:id,program_name,program_location',
                 'athlete:id,name,last_name',
                 'parent:id,name,last_name,email',
-                'coach:id,name,last_name,email',
+                'coach:id,name,last_name,email,role',
                 'coach.stripeSet:id,user_id,stripe_account_id,payouts_enabled',
             ])
             ->latest('id');
@@ -338,3 +356,4 @@ class ProgramBookingPaymentController extends Controller
         }
     }
 }
+

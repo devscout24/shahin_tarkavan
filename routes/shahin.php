@@ -1,15 +1,18 @@
 <?php
 
+use App\Http\Controllers\Api\AthletPublic;
 use App\Http\Controllers\Api\AvaialableProgramController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\ClubDashboardController;
 use App\Http\Controllers\Api\ClubProfileController;
+use App\Http\Controllers\Api\ClubProgramController;
 use App\Http\Controllers\Api\ClubTeamController;
 use App\Http\Controllers\Api\CoachAuthController;
 use App\Http\Controllers\Api\CoachDashboardController;
 use App\Http\Controllers\Api\CoacherProgramController;
 use App\Http\Controllers\Api\CoachPositionController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\MatchBidController;
 use App\Http\Controllers\Api\MatchController;
 use App\Http\Controllers\Api\ParentChildController;
@@ -19,18 +22,18 @@ use App\Http\Controllers\Api\PlayerCoachRecruitmentController;
 use App\Http\Controllers\Api\PlayerDashboardController;
 use App\Http\Controllers\Api\PlayerPaymentController;
 use App\Http\Controllers\Api\PlayerPositionController;
+use App\Http\Controllers\Api\PlayerVotingController;
+use App\Http\Controllers\Api\PreviewController;
+use App\Http\Controllers\Api\PrivacySettingsController;
 use App\Http\Controllers\Api\ProgramBookingController;
+use App\Http\Controllers\Api\PublicProfileController;
 use App\Http\Controllers\Api\RecruitementController;
 use App\Http\Controllers\Api\SearchExploreController;
+use App\Http\Controllers\Api\SportOptionController;
 use App\Http\Controllers\Api\StripeController;
+use App\Http\Controllers\Api\StripeWebhookController;
 use App\Http\Controllers\Api\SubscriptionPlanApiController;
 use Illuminate\Support\Facades\Route;
-
-
-
-
-
-
 
 
 
@@ -39,11 +42,29 @@ use Illuminate\Support\Facades\Route;
 Route::controller(ParentController::class)->group(function () {
     Route::post('parent/register', 'register');
 });
-
+Route::get('landing-page/data', [App\Http\Controllers\Api\LandingPageController::class, 'index']);
 Route::controller(SubscriptionPlanApiController::class)->group(function () {
     Route::get('subscription/plans', 'index');
     Route::get('subscription/plan/{plan_id}', 'show');
-    Route::get('weebhook/stripe', 'handleStripeWebhook');
+});
+Route::post('weebhook/stripe', [StripeWebhookController::class, 'handle']);
+
+Route::controller(PublicProfileController::class)->group(function () {
+
+    Route::get(
+        'data/athlete/{athlete_id}',
+        'athleteProfileById'
+    );
+
+    Route::get(
+        'data/coach/{coach_id}',
+        'coachProfileById'
+    );
+
+    Route::get(
+        'data/club/{club_id}',
+        'clubProfileById'
+    );
 });
 
 
@@ -52,7 +73,30 @@ Route::middleware('auth:api')->group(function () {
         Route::post('parent/aggrement', 'aggrement');
         Route::get('parent/profile', 'getProfile');
         Route::post('parent/profile/update', 'UpdateParentProfile');
+        Route::post('change/password', 'changePassword');
     });
+
+
+
+    Route::controller(PlayerVotingController::class)->group(function () {
+        Route::post('player/vote', 'vote');
+        Route::post('player/vote/{vote_id}', 'deleteVote');
+        Route::get('player/votes/given', 'givenVotes');
+        Route::get('player/votes/received', 'receivedVotes');
+    });
+
+
+    Route::controller(PrivacySettingsController::class)->group(function () {
+        Route::post('privacy/settings/update', 'privacySettings');
+        Route::get('privacy/settings', 'getPrivacySettings');
+        Route::get('competition/club', 'getCompetitionClubs');
+    });
+
+
+
+
+
+
 
     Route::controller(ParentChildController::class)->group(function () {
         Route::post('parent/child/add', 'addChild');
@@ -80,6 +124,12 @@ Route::middleware('auth:api')->group(function () {
     });
 
 
+    Route::controller(PreviewController::class)->group(function () {
+        Route::post('preview/athlete/{athlete_id}', 'athleteProfile');
+        Route::post('preview/coach/{coach_id}', 'coachProfile');
+        Route::post('preview/club/{club_id}', 'clubProfile');
+    });
+
     ///////////////////////////coach////////////////////////////
 
     Route::controller(CoachAuthController::class)->group(function () {
@@ -105,8 +155,11 @@ Route::middleware('auth:api')->group(function () {
 
     Route::controller(AvaialableProgramController::class)->group(function () {
         Route::get('program/available/list', 'listAvailablePrograms');
-        Route::get('program/available/view/{program_id}', 'viewProgramDetails');
+        Route::get('user/upcoming/events', 'upcomingEvents');
     });
+
+    Route::get('program/details/{id}', [App\Http\Controllers\Api\ProgramDetailController::class, 'show']);
+
 
     //////////////////club////////////////////////////
     Route::controller(ClubProfileController::class)->group(function () {
@@ -124,23 +177,17 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/club/subscription/update', 'changePlan');
     });
 
+    // Route::middleware('club.subscription')->group(function () {
     Route::controller(ClubTeamController::class)->group(function () {
         Route::post('club/team/add', 'store');
         Route::post('club/team/update/{team_id}', 'update');
         Route::get('club/team/list', 'list');
         Route::get('club/team/view/{team_id}', 'show');
         Route::delete('club/team/delete/{team_id}', 'delete');
+        Route::get('club/team/player/release/data', 'releasePlayer');
+        Route::post('club/team/player/transfer', 'transferPlayer');
 
         Route::get('club/team/players/list/{team_id}', 'listTeamPlayersandCoaches');
-    });
-
-
-    Route::controller(PlayerPositionController::class)->group(function () {
-        Route::get('player/positions', 'index');
-    });
-
-    Route::controller(CoachPositionController::class)->group(function () {
-        Route::get('coach/positions', 'index');
     });
 
     Route::controller(RecruitementController::class)->group(function () {
@@ -157,6 +204,39 @@ Route::middleware('auth:api')->group(function () {
         Route::get('club/match/view/{match_id}', 'show');
         Route::post('club/match/delete/{match_id}', 'delete');
     });
+
+    Route::controller(ClubDashboardController::class)->group(function () {
+        Route::get('club/dashboard', 'clubDashboard');
+        Route::post('club/settings/update', 'updateSettings');
+    });
+
+    Route::controller(ClubProgramController::class)->group(function () {
+        Route::post('club/program/add', 'store');
+        Route::post('club/program/update/{program_id}', 'update');
+        Route::get('club/program/list', 'list');
+        Route::get('club/program/view/{program_id}', 'show');
+        Route::post('club/program/delete/{program_id}', 'delete');
+    });
+    // });
+
+
+    Route::controller(PlayerPositionController::class)->group(function () {
+        Route::get('player/positions', 'index');
+    });
+
+    Route::controller(SportOptionController::class)->group(function () {
+        Route::get('sport/options', 'index');
+    });
+
+    Route::controller(LocationController::class)->group(function () {
+        Route::get('locations/countries', 'countries');
+        Route::get('locations/cities', 'cities');
+    });
+
+    Route::controller(CoachPositionController::class)->group(function () {
+        Route::get('coach/positions', 'index');
+    });
+
 
     Route::controller(PlayerCoachRecruitmentController::class)->group(function () {
         Route::post('recruitment/apply', 'apply');
@@ -182,13 +262,11 @@ Route::middleware('auth:api')->group(function () {
         Route::get('coach/earnings/export', 'exportEarnings');
     });
 
-    Route::controller(ClubDashboardController::class)->group(function () {
-        Route::get('club/dashboard', 'clubDashboard');
-        Route::post('club/settings/update', 'updateSettings');
-    });
 
     Route::controller(ProgramBookingController::class)->group(function () {
         Route::post('program/booking', 'bookProgram');
+        Route::get('program/{program_id}/available-slots', 'availableSlots');
+        Route::get('program/{program_id}/available-times', 'availableTimes');
         Route::get('program/booking/list/athlete', 'AthleteParentlistBookings');
         Route::get('program/booking/view/{program_id}', 'viewBookingDetails');
         Route::post('program/booking/cancel/{booking_id}', 'updateStatus');
@@ -196,6 +274,7 @@ Route::middleware('auth:api')->group(function () {
         ///////////////////////////coach.///////////////////////
         Route::get('coach/program/bookings', 'coachProgramBookings');
         Route::get('coach/earnings/view', 'coachEarningsView');
+        Route::get('club/program/bookings', 'clubProgramBookings');
     });
 
     Route::controller(StripeController::class)->group(function () {
@@ -232,9 +311,4 @@ Route::middleware('auth:api')->group(function () {
         Route::get('match/bids/list', 'listBidsForMatch');
         Route::post('match/bid/update/{bid_id}', 'updateBidStatus');
     });
-});
-
-
-Route::controller(ProgramBookingController::class)->group(function () {
-    Route::post('program/booking/hook', 'handle');
 });

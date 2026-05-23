@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('player_strengths', function (Blueprint $table) {
             $table->id();
 
-                $table->enum('strength_type', ['tactical', 'mental', 'attacking', 'defending', 'physical', 'aerial']);
+                $table->enum('strength_type', ['technical','tactical', 'mental', 'attacking', 'defending', 'physical', 'aerial']);
                 $table->string('strength_name');
 
                 // Relation to athlete_profiles

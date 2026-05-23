@@ -9,8 +9,10 @@ use App\Models\PlayerAchievement;
 use App\Models\PlayerMediaLink;
 use App\Models\PlayerMediaVideo;
 use App\Models\PlayerPosition;
+use App\Models\PlayerSeasonStat;
 use App\Models\PlayerStrength;
 use App\Models\TeamPlayer;
+use App\Models\SportOption;
 use App\Models\User;
 use App\Traits\ApiResponse;
 use Carbon\Carbon;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class ParentChildController extends Controller
 {
@@ -31,7 +34,23 @@ class ParentChildController extends Controller
             'name' => 'required',
             'dob' => 'required',
             'nationality' => 'required',
-            'sports_selection' => 'required',
+            'sport_option_id' => [
+                'nullable',
+
+            ],
+            'sports_selection' => 'nullable|string|max:255',
+            'season_year' => 'nullable|integer|min:1900|max:2100',
+            'season_stats' => 'nullable|array|max:5',
+            'season_stats.*.season_year' => 'required|integer|min:1900|max:2100',
+            'season_stats.*.total_played_games' => 'nullable|integer|min:0',
+            'season_stats.*.total_played_time' => 'nullable|integer|min:0',
+            'season_stats.*.goals' => 'nullable|integer|min:0',
+            'season_stats.*.assist' => 'nullable|integer|min:0',
+            'season_stats.*.yellow_cards' => 'nullable|integer|min:0',
+            'season_stats.*.red_cards' => 'nullable|integer|min:0',
+            'season_stats.*.clean_sheets' => 'nullable|integer|min:0',
+            'season_stats.*.total_saves' => 'nullable|integer|min:0',
+            'season_stats.*.penalty_saves' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -43,7 +62,7 @@ class ParentChildController extends Controller
 
         try {
             DB::beginTransaction();
-            
+              dd($request->file('profile_image'));
             $user = Auth::guard('api')->user();
             $child = new AthleteProfiles();
             $child->name = $request->name;
@@ -51,14 +70,19 @@ class ParentChildController extends Controller
             $child->dob = $request->dob;
             $child->gender = $request->gender;
             $child->nationality = $request->nationality;
+            $sportOptionId = SportOption::resolveIdForAudience('player', $request->input('sport_option_id', $request->input('sports_selection')));
+            $sportOptionName = $sportOptionId ? SportOption::query()->where('id', $sportOptionId)->value('name') : null;
+
             $child->email = $request->email ?? null;
-            $child->sports_selection = $request->sports_selection;
+            $child->sport_option_id = $sportOptionId;
+            $child->sports = $sportOptionName ?? $request->input('sports_selection');
+            $child->sports_selection = $sportOptionName ?? $request->input('sports_selection');
             $child->jersey_number = $request->jersey_number ?? null;
             $child->dominant_foot = $request->dominant_foot ?? null;
             $child->club_team = $request->club_team ?? null;
             $child->parent_id = $user->id;
-            $child->city= $request->city ?? null;
-            $child->country= $request->country ?? null;
+            $child->city = $request->city ?? null;
+            $child->country = $request->country ?? null;
             // $child->user_id = $user->id;
 
             $primaryPositionId = $this->resolvePositionId($request->primary_position);
@@ -88,6 +112,7 @@ class ParentChildController extends Controller
             $child->athlete_biography = $request->athlete_biography ?? null;
             $child->privacy_settings = $request->privacy_settings ?? null;
             $child->total_played_games = $request->total_played_games ?? 0;
+            $child->total_played_time = $request->total_played_time ?? 0;
             $child->goals = $request->goals ?? 0;
             $child->assist = $request->assist ?? 0;
             $child->yellow_cards = $request->yellow_cards ?? 0;
@@ -96,8 +121,11 @@ class ParentChildController extends Controller
             $child->total_saves = $request->total_saves ?? 0;
             $child->save();
 
+            $this->upsertSeasonStatsFromRequest($request, $child);
+            $this->syncAthleteMainStatsFromLatestSeason($child);
+
             if ($request->has('strengths')) {
-                $strengths = array_slice((array) $request->strengths, 0, 5);
+                $strengths = array_slice((array) $request->strengths, 0, 7);
                 foreach ($strengths as $s) {
                     $strength = new PlayerStrength();
                     $strength->strength_type = $s['strength_type'] ?? null;
@@ -176,10 +204,14 @@ class ParentChildController extends Controller
         $data = $children->map(function ($child) {
             return [
                 'id' => $child->id,
+                'user_id' => $child->user_id,
                 'name' => $child->name,
                 'last_name' => $child->last_name,
                 'dob' => $child->dob,
-                'image' => asset($child->image) ?? null,
+                'city' => $child->city,
+                'country' => $child->country,
+                'privacy_settings' => $child->privacy_settings,
+                'profile_picture' => asset($child->image) ?? null,
                 'primary_position' => $child->primaryPosition
                     ? ['id' => (int) $child->primaryPosition->id, 'name' => $child->primaryPosition->name]
                     : null,
@@ -188,9 +220,12 @@ class ParentChildController extends Controller
                     : null,
                 'jersey_number' => $child->jersey_number,
                 'tolal_played_games' => $child->total_played_games,
+                'total_played_time' => $child->total_played_time,
                 'goals' => $child->goals,
                 'assist' => $child->assist,
 
+                'invitation_status' => $child->user_id ? true : false,
+                'block_status' => $child->user_id && User::find($child->user_id)->status == 'block' ? true : false,
 
                 'age' => Carbon::parse($child->dob)->age,
                 'parent_control' => "Parent control active",
@@ -208,7 +243,23 @@ class ParentChildController extends Controller
             'name' => 'sometimes|required',
             'dob' => 'sometimes|required',
             'nationality' => 'sometimes|required',
-            'sports_selection' => 'sometimes|required',
+            'sport_option_id' => [
+                'nullable',
+
+            ],
+            'sports_selection' => 'nullable|string|max:255',
+            'season_year' => 'nullable|integer|min:1900|max:2100',
+            'season_stats' => 'nullable|array|max:5',
+            'season_stats.*.season_year' => 'required|integer|min:1900|max:2100',
+            'season_stats.*.total_played_games' => 'nullable|integer|min:0',
+            'season_stats.*.total_played_time' => 'nullable|integer|min:0',
+            'season_stats.*.goals' => 'nullable|integer|min:0',
+            'season_stats.*.assist' => 'nullable|integer|min:0',
+            'season_stats.*.yellow_cards' => 'nullable|integer|min:0',
+            'season_stats.*.red_cards' => 'nullable|integer|min:0',
+            'season_stats.*.clean_sheets' => 'nullable|integer|min:0',
+            'season_stats.*.total_saves' => 'nullable|integer|min:0',
+            'season_stats.*.penalty_saves' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -240,13 +291,26 @@ class ParentChildController extends Controller
             $child->dob = $request->dob ?? $child->dob;
             $child->gender = $request->gender ?? $child->gender;
             $child->nationality = $request->nationality ?? $child->nationality;
+            // $sportOptionId = $request->filled('sport_option_id')
+            //     ? SportOption::resolveIdForAudience('player', $request->input('sport_option_id'))
+            //     : SportOption::resolveIdForAudience('player', $request->input('sports_selection'));
+            // $sportOptionName = $sportOptionId ? SportOption::query()->where('id', $sportOptionId)->value('name') : ($request->input('sports_selection') ?? $child->sports);
+
             $child->email = $request->email ?? $child->email;
-            $child->sports_selection = $request->sports_selection ?? $child->sports_selection;
+            $child->sport_option_id = $request->sport_option_id ?? $child->sport_option_id;
+            $child->sports = $request->sport ?? $child->sports;
+            $child->sports_selection = $sportOptionName ?? $child->sports_selection;
             $child->jersey_number = $request->jersey_number ?? $child->jersey_number;
             $child->dominant_foot = $request->dominant_foot ?? $child->dominant_foot;
             $child->club_team = $request->club_team ?? $child->club_team;
-             $child->city= $request->city ?? $child->city;
-             $child->country= $request->country ?? $child->country;
+            $child->city = $request->city ?? $child->city;
+            $child->country = $request->country ?? $child->country;
+
+            $child->facebook_link = $request->facebook_link ?? $child->facebook_link;
+            $child->twitter_link = $request->twitter_link ?? $child->twitter_link;
+            $child->instagram_link = $request->instagram_link ?? $child->instagram_link;
+            $child->tiktok_link = $request->tiktok_link ?? $child->tiktok_link;
+            $child->whatsapp_link = $request->whatsapp_link ?? $child->whatsapp_link;
             if ($request->has('primary_position')) {
                 $primaryPositionId = $this->resolvePositionId($request->primary_position);
                 if ($request->filled('primary_position') && $primaryPositionId === null) {
@@ -291,9 +355,12 @@ class ParentChildController extends Controller
 
             $child->save();
 
+            $this->upsertSeasonStatsFromRequest($request, $child);
+            $this->syncAthleteMainStatsFromLatestSeason($child);
+
             if ($request->has('strengths')) {
 
-                $strengths = array_slice((array) $request->strengths, 0, 5);
+                $strengths = array_slice((array) $request->strengths, 0, 7);
 
 
                 $newNames = collect($strengths)->pluck('strength_name')->filter()->toArray();
@@ -360,25 +427,44 @@ class ParentChildController extends Controller
             }
 
             if ($request->has('title')) {
+                $titles = array_values(array_filter((array) $request->title));
 
+                // Delete achievements that are not present in incoming titles
+                PlayerAchievement::where('player_id', $child->id)
+                    ->whereNotIn('title', $titles)
+                    ->delete();
 
                 foreach ((array) $request->title as $index => $title) {
-                    $achievement = new PlayerAchievement();
-                    $achievement->title = $title;
-                    $achievement->description = $request->description[$index] ?? null;
-                    $achievement->date_earned = $request->date_earned[$index] ?? null;
+                    if (empty($title)) {
+                        continue;
+                    }
+
+                    $data = [
+                        'description' => $request->description[$index] ?? null,
+                        'date_earned' => $request->date_earned[$index] ?? null,
+                    ];
+
+                    $achievement = PlayerAchievement::updateOrCreate(
+                        [
+                            'player_id' => $child->id,
+                            'title' => $title,
+                        ],
+                        $data
+                    );
 
                     if (isset($request->image[$index]) && $request->hasFile("image.$index")) {
+                        // remove old image file if exists
+                        if ($achievement->image && file_exists(public_path($achievement->image))) {
+                            @unlink(public_path($achievement->image));
+                        }
                         $file = $request->file("image.$index");
                         $filename = time() . '_' . $file->getClientOriginalName();
                         $path = 'uploads/achievements/';
                         $filePath = $path . $filename;
                         $file->move(public_path($path), $filename);
                         $achievement->image = $filePath;
+                        $achievement->save();
                     }
-
-                    $achievement->player_id = $child->id;
-                    $achievement->save();
                 }
             }
 
@@ -518,6 +604,27 @@ class ParentChildController extends Controller
 
             $userId = Auth::id();
 
+            // Check if player is trying to endorse themselves
+            $athleteProfile = AthleteProfiles::find($request->athlete_profile_id);
+            if ($athleteProfile && $athleteProfile->user_id == $userId) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You cannot endorse your own strength',
+                ], 400);
+            }
+
+         $endorseCountPerUser = Endorse::where('player_strength_id', $request->player_strength_id)
+                ->where('athlete_profile_id', $request->athlete_profile_id)
+                ->where('endorced_by', $userId)
+                ->count();
+
+            if ($endorseCountPerUser > 3) {
+                return response()->json([
+                    'status' => false,
+                    'message' => 'You have already endorsed this strength 3 times',
+                ], 400);
+            }
+
 
             $alreadyEndorsed = Endorse::where('player_strength_id', $request->player_strength_id)
                 ->where('athlete_profile_id', $request->athlete_profile_id)
@@ -551,7 +658,7 @@ class ParentChildController extends Controller
             $viewer = Auth::guard('api')->user();
 
             $profile = AthleteProfiles::query()
-                ->with(['strengths', 'mediaReels', 'mediaLinks', 'achievements', 'primaryPosition:id,name', 'secondaryPosition:id,name'])
+                ->with(['strengths', 'mediaReels', 'mediaLinks', 'achievements', 'primaryPosition:id,name', 'secondaryPosition:id,name', 'seasonStats'])
                 ->where('id', $child_id)
                 ->first();
 
@@ -585,6 +692,7 @@ class ParentChildController extends Controller
             // 2. PLAYER STATS
             $playerStats = [
                 'total_matches' => $profile->total_played_games ?? 0,
+                'total_played_time' => $profile->total_played_time ?? 0,
                 'goals' => $profile->goals ?? 0,
                 'assists' => $profile->assist ?? 0,
                 'yellow_cards' => $profile->yellow_cards ?? 0,
@@ -653,6 +761,25 @@ class ParentChildController extends Controller
                 ];
             });
 
+            $lastFiveSeasons = $profile->seasonStats
+                ->sortByDesc('season_year')
+                ->take(5)
+                ->values()
+                ->map(function ($seasonStat) {
+                    return [
+                        'season_year' => (int) $seasonStat->season_year,
+                        'total_played_games' => (int) $seasonStat->total_played_games,
+                        'total_played_time' => (int) $seasonStat->total_played_time,
+                        'goals' => (int) $seasonStat->goals,
+                        'assist' => (int) $seasonStat->assist,
+                        'yellow_cards' => (int) $seasonStat->yellow_cards,
+                        'red_cards' => (int) $seasonStat->red_cards,
+                        'clean_sheets' => (int) $seasonStat->clean_sheets,
+                        'total_saves' => (int) $seasonStat->total_saves,
+                        'penalty_saves' => (int) $seasonStat->penalty_saves,
+                    ];
+                });
+
             // 8. POSITION & CLUB INFO
             $positionInfo = [
                 'primary_position' => $profile->primaryPosition
@@ -677,6 +804,7 @@ class ParentChildController extends Controller
                 'gallery' => $gallery,
                 'videos' => $reels,
                 'media_links' => $mediaLinks,
+                'season_stats_last_five_years' => $lastFiveSeasons,
             ];
 
             return $this->success($completeProfile, 'Profile data fetched successfully', 200);
@@ -692,7 +820,7 @@ class ParentChildController extends Controller
             $viewer = Auth::guard('api')->user();
 
             $profile = AthleteProfiles::query()
-                ->with(['strengths', 'mediaReels', 'mediaLinks', 'achievements', 'primaryPosition:id,name', 'secondaryPosition:id,name'])
+                ->with(['strengths', 'mediaReels', 'mediaLinks', 'achievements', 'primaryPosition:id,name', 'secondaryPosition:id,name', 'seasonStats'])
                 ->where('id', $child_id)
                 ->first();
 
@@ -707,7 +835,29 @@ class ParentChildController extends Controller
                 return $this->forbidden([], 'This player profile is private.', 403);
             }
 
-            return $this->success($profile, 'Player data fetched successfully', 200);
+            $lastFiveSeasons = $profile->seasonStats
+                ->sortByDesc('season_year')
+                ->take(5)
+                ->values()
+                ->map(function ($seasonStat) {
+                    return [
+                        'season_year' => (int) $seasonStat->season_year,
+                        'total_played_games' => (int) $seasonStat->total_played_games,
+                        'total_played_time' => (int) $seasonStat->total_played_time,
+                        'goals' => (int) $seasonStat->goals,
+                        'assist' => (int) $seasonStat->assist,
+                        'yellow_cards' => (int) $seasonStat->yellow_cards,
+                        'red_cards' => (int) $seasonStat->red_cards,
+                        'clean_sheets' => (int) $seasonStat->clean_sheets,
+                        'total_saves' => (int) $seasonStat->total_saves,
+                        'penalty_saves' => (int) $seasonStat->penalty_saves,
+                    ];
+                });
+
+            return $this->success([
+                'profile' => $profile,
+                'season_stats_last_five_years' => $lastFiveSeasons,
+            ], 'Player data fetched successfully', 200);
         } catch (\Exception $e) {
             return $this->errors($e->getMessage(), 500);
         }
@@ -715,17 +865,17 @@ class ParentChildController extends Controller
 
     public function sendInvitation(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'child_id' => 'required|exists:athlete_profiles,id',
-            'email' => 'required|email',
-        ]);
+       $validator = Validator::make($request->all(), [
+    'child_id' => 'required|exists:athlete_profiles,id',
+    'email' => 'required|email|unique:users,email',
+]);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'status' => false,
-                'message' => $validator->errors()->first(),
-            ], 422);
-        }
+if ($validator->fails()) {
+    return response()->json([
+        'status' => false,
+        'message' => $validator->errors()->first(),
+    ], 422);
+}
 
         try {
             $child = AthleteProfiles::find($request->child_id);
@@ -827,6 +977,83 @@ class ParentChildController extends Controller
         return PlayerPosition::query()
             ->whereRaw('LOWER(name) = ?', [strtolower(trim((string) $position))])
             ->value('id');
+    }
+
+    private function upsertSeasonStatsFromRequest(Request $request, AthleteProfiles $profile): void
+    {
+        $seasonStats = collect($request->input('season_stats', []));
+
+        if ($seasonStats->isEmpty()) {
+            $hasLegacyStats = $request->hasAny([
+                'total_played_games',
+                'total_played_time',
+                'goals',
+                'assist',
+                'yellow_cards',
+                'red_cards',
+                'clean_sheets',
+                'total_saves',
+                'penalty_saves',
+            ]);
+
+            if ($hasLegacyStats) {
+                $seasonStats = collect([[
+                    'season_year' => (int) ($request->input('season_year') ?: now()->year),
+                    'total_played_games' => (int) $request->input('total_played_games', 0),
+                    'total_played_time' => (int) $request->input('total_played_time', 0),
+                    'goals' => (int) $request->input('goals', 0),
+                    'assist' => (int) $request->input('assist', 0),
+                    'yellow_cards' => (int) $request->input('yellow_cards', 0),
+                    'red_cards' => (int) $request->input('red_cards', 0),
+                    'clean_sheets' => (int) $request->input('clean_sheets', 0),
+                    'total_saves' => (int) $request->input('total_saves', 0),
+                    'penalty_saves' => (int) $request->input('penalty_saves', 0),
+                ]]);
+            }
+        }
+
+        foreach ($seasonStats as $seasonRow) {
+            $seasonYear = (int) ($seasonRow['season_year'] ?? 0);
+            if ($seasonYear < 1900 || $seasonYear > 2100) {
+                continue;
+            }
+
+            PlayerSeasonStat::query()->updateOrCreate(
+                [
+                    'athlete_profile_id' => $profile->id,
+                    'season_year' => $seasonYear,
+                ],
+                [
+                    'total_played_games' => (int) ($seasonRow['total_played_games'] ?? 0),
+                    'total_played_time' => (int) ($seasonRow['total_played_time'] ?? 0),
+                    'goals' => (int) ($seasonRow['goals'] ?? 0),
+                    'assist' => (int) ($seasonRow['assist'] ?? 0),
+                    'yellow_cards' => (int) ($seasonRow['yellow_cards'] ?? 0),
+                    'red_cards' => (int) ($seasonRow['red_cards'] ?? 0),
+                    'clean_sheets' => (int) ($seasonRow['clean_sheets'] ?? 0),
+                    'total_saves' => (int) ($seasonRow['total_saves'] ?? 0),
+                    'penalty_saves' => (int) ($seasonRow['penalty_saves'] ?? 0),
+                ]
+            );
+        }
+    }
+
+    private function syncAthleteMainStatsFromLatestSeason(AthleteProfiles $profile): void
+    {
+        $latestSeason = $profile->seasonStats()->orderByDesc('season_year')->orderByDesc('id')->first();
+        if (! $latestSeason) {
+            return;
+        }
+
+        $profile->total_played_games = (int) $latestSeason->total_played_games;
+        $profile->total_played_time = (int) $latestSeason->total_played_time;
+        $profile->goals = (int) $latestSeason->goals;
+        $profile->assist = (int) $latestSeason->assist;
+        $profile->yellow_cards = (int) $latestSeason->yellow_cards;
+        $profile->red_cards = (int) $latestSeason->red_cards;
+        $profile->clean_sheets = (int) $latestSeason->clean_sheets;
+        $profile->total_saves = (int) $latestSeason->total_saves;
+        $profile->save();
     }
 
     private function canViewAthleteProfile($viewer, AthleteProfiles $profile): bool

@@ -13,7 +13,9 @@ class ErProgram extends Model
         'coach_id',
         'user_id',
         'sport',
+        'sport_option_id',
         'program_name',
+        'program_type',
         'program_price',
         'program_location',
         'program_start',
@@ -34,6 +36,11 @@ class ErProgram extends Model
             'program_start' => 'date',
             'program_end' => 'date',
         ];
+    }
+
+    public function sportOption()
+    {
+        return $this->belongsTo(SportOption::class, 'sport_option_id', 'id');
     }
 
     public function coach()

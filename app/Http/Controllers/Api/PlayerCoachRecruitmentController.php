@@ -13,8 +13,9 @@ use App\Traits\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
-use Mail;
+
 
 class PlayerCoachRecruitmentController extends Controller
 {
@@ -255,7 +256,7 @@ class PlayerCoachRecruitmentController extends Controller
             $application = RecruitementApply::query()->where('club_id', Auth::guard('api')->user()->id)->find($application_id);
 
             if (! $application) {
-                return $this->validationError('Application not found', 404);
+                return $this->validationError([],'Application not found', 404);
             }
 
             $application->status = $request->status;
@@ -278,7 +279,7 @@ class PlayerCoachRecruitmentController extends Controller
 
             return $this->success([], 'Application status updated successfully');
         } catch (\Exception $e) {
-            return $this->errors($e->getMessage(), 500);
+            return $this->errors("something went wrong",$e->getMessage(), 500);
         }
     }
 

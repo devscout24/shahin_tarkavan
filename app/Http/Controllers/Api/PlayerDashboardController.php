@@ -5,8 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AthleteProfiles;
 use App\Models\ClubRecruitment;
+use App\Models\City;
+use App\Models\Country;
 use App\Models\ProgramBooking;
 use App\Models\PlayerMediaVideo;
+use App\Models\RecruitementApply;
+use App\Support\AgeGroup;
 use App\Traits\ApiResponse;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -47,7 +51,7 @@ class PlayerDashboardController extends Controller
         $fieldsCount += 1;
 
         // Stats
-        if ($athlete->total_played_games || $athlete->goals || $athlete->assist) {
+        if ($athlete->total_played_games || $athlete->total_played_time || $athlete->goals || $athlete->assist) {
             $score += 20;
         }
         $fieldsCount += 1;
@@ -73,6 +77,19 @@ class PlayerDashboardController extends Controller
         return min($score, $maxScore);
     }
 
+    private function resolveLocationPayload(?int $cityId, ?int $countryId, ?string $cityName, ?string $countryName): array
+    {
+        $resolvedCityId = $cityId ?: ($cityName ? City::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($cityName))])->value('id') : null);
+        $resolvedCountryId = $countryId ?: ($countryName ? Country::query()->whereRaw('LOWER(name) = ?', [strtolower(trim($countryName))])->value('id') : null);
+
+        return [
+            'city_id' => $resolvedCityId ? (int) $resolvedCityId : null,
+            'city' => $cityName,
+            'country_id' => $resolvedCountryId ? (int) $resolvedCountryId : null,
+            'country' => $countryName,
+        ];
+    }
+
     public function playerDashboard(Request $request): JsonResponse
     {
         try {
@@ -82,14 +99,26 @@ class PlayerDashboardController extends Controller
                 return $this->errors([], 'Authentication required.', 401);
             }
 
-            if ($user->role !== 'player') {
-                return $this->errors([], 'Only player can view this dashboard.', 403);
+            // হেডার (active-child-id) অথবা রিকোয়েস্ট বডি/প্যারামস (active_child_id) উভয় থেকেই আইডি চেক করা হচ্ছে
+            $activeChildId = $request->header('active-child-id') ?? $request->get('active_child_id');
+
+            if ($user->role !== 'player' && $user->role !== 'parent' && !$activeChildId) {
+                return $this->errors([], 'Only player or parent with active child can view this dashboard.', 403);
+            }
+
+            if ($user->role === 'parent' && !$activeChildId) {
+                return $this->errors([], 'Please provide an active child profile ID.', 400);
             }
 
             // Get player profile
             $athlete = AthleteProfiles::query()
-                ->where('user_id', $user->id)
-                ->with(['strengths', 'mediaReels', 'parentAggrement'])
+                ->when($activeChildId, function ($query) use ($activeChildId) {
+                    return $query->where('id', $activeChildId);
+                })
+                ->when(!$activeChildId, function ($query) use ($user) {
+                    return $query->where('user_id', $user->id);
+                })
+                ->with(['strengths', 'mediaReels', 'parentAggrement', 'primaryPosition:id,name', 'secondaryPosition:id,name'])
                 ->first();
 
             if (! $athlete) {
@@ -125,7 +154,7 @@ class PlayerDashboardController extends Controller
             // 5. Videos Uploaded
             $videosUploaded = PlayerMediaVideo::query()
                 ->where('player_profile_id', $athlete->id)
-                ->where('status', ['reels', 'youtube'])
+                ->whereIn('status', ['reels', 'youtube'])
                 ->count();
 
             // 6. Recent Opportunities (recruitment matching player's position/age)
@@ -144,14 +173,35 @@ class PlayerDashboardController extends Controller
                 $opportunities = ClubRecruitment::query()
                     ->with([
                         'club:id,name,last_name,email',
-                        'club.club:id,user_id,club_name,club_logo,city,state,country',
+                        'club.club:id,user_id,club_name,club_logo,city,state,country,city_id,country_id',
                         'clubTeam:id,name,age_group,image,competition_level_id',
                         'clubTeam.competitionLevel:id,name',
                         'playerPosition:id,name',
                     ])
                     ->where('status', 'active')
                     ->where('recruitment_type', 'player')
-                    ->whereDate('end_date', '>=', $today)
+                    // Filter recruitments by the player's location (city or country) when available
+                    ->when($athlete->city_id || $athlete->country_id, function ($query) use ($athlete) {
+                        return $query->whereHas('club.club', function ($q) use ($athlete) {
+                            if ($athlete->city_id) {
+                                $q->where('city_id', $athlete->city_id);
+                            }
+
+                            if ($athlete->country_id) {
+                                $q->orWhere('country_id', $athlete->country_id);
+                            }
+                        });
+                    })
+                    ->where(function ($dateQuery) use ($today) {
+                        $dateQuery->where(function ($q) use ($today) {
+                            $q->whereNull('start_date')
+                                ->orWhereDate('start_date', '<=', $today);
+                        })
+                            ->where(function ($q) use ($today) {
+                                $q->whereNull('end_date')
+                                    ->orWhereDate('end_date', '>=', $today);
+                            });
+                    })
                     ->whereNotNull('upto_age')
                     ->where('upto_age', '>=', $playerAge)
                     ->when($athlete->primary_position, function ($query) use ($athlete) {
@@ -160,7 +210,7 @@ class PlayerDashboardController extends Controller
                     ->orderBy('end_date')
                     ->limit(5)
                     ->get()
-                    ->map(function (ClubRecruitment $recruitment) {
+                    ->map(function (ClubRecruitment $recruitment) use ($user, $athlete) {
                         $competitionLevel = $recruitment->clubTeam?->competitionLevel?->name;
                         $ageGroup = $recruitment->clubTeam?->age_group;
                         $formattedAge = [];
@@ -171,6 +221,16 @@ class PlayerDashboardController extends Controller
                             $formattedAge[] = "Age: {$ageGroup}";
                         }
 
+                        $application = RecruitementApply::query()
+                            ->where('recruitment_id', $recruitment->id)
+                            ->where(function ($q) use ($user, $athlete) {
+                                $q->where('user_id', $user->id);
+                                if ($athlete && $athlete->id) {
+                                    $q->orWhere('child_id', $athlete->id);
+                                }
+                            })
+                            ->first();
+
                         return [
                             'id' => $recruitment->id,
                             'club' => [
@@ -180,12 +240,17 @@ class PlayerDashboardController extends Controller
                                 'city' => $recruitment->club?->club?->city,
                                 'state' => $recruitment->club?->club?->state,
                                 'country' => $recruitment->club?->club?->country,
+                                'city_id' => $recruitment->club?->club?->city_id ? (int) $recruitment->club->club->city_id : null,
+                                'country_id' => $recruitment->club?->club?->country_id ? (int) $recruitment->club->club->country_id : null,
                             ],
-                            'position' => $recruitment->playerPosition?->name,
+                            'position' => [
+                                'id' => $recruitment->player_position ? (int) $recruitment->player_position : null,
+                                'name' => $recruitment->playerPosition?->name,
+                            ],
                             'team' => [
                                 'id' => $recruitment->clubTeam?->id,
                                 'name' => $recruitment->clubTeam?->name,
-                                'age_group' => $recruitment->clubTeam?->age_group,
+                                'age_group' => AgeGroup::normalize($recruitment->clubTeam?->age_group),
                                 'image' => ! empty($recruitment->clubTeam?->image) ? asset($recruitment->clubTeam->image) : null,
                                 'competition_level' => $recruitment->clubTeam?->competitionLevel?->name,
                                 'formatted_age' => implode(' | ', $formattedAge) ?: null,
@@ -193,11 +258,22 @@ class PlayerDashboardController extends Controller
                             'experience' => $recruitment->experience,
                             'description' => $recruitment->description,
                             'upto_age' => $recruitment->upto_age,
+                            'start_date' => $recruitment->start_date
+                                ? ($recruitment->start_date instanceof CarbonInterface
+                                    ? $recruitment->start_date->toDateString()
+                                    : Carbon::parse($recruitment->start_date)->toDateString())
+                                : null,
                             'tryout_date' => $recruitment->end_date
                                 ? ($recruitment->end_date instanceof CarbonInterface
                                     ? $recruitment->end_date->format('F d-j, Y')
                                     : Carbon::parse($recruitment->end_date)->format('F d-j, Y'))
                                 : null,
+                            'end_date' => $recruitment->end_date
+                                ? ($recruitment->end_date instanceof CarbonInterface
+                                    ? $recruitment->end_date->toDateString()
+                                    : Carbon::parse($recruitment->end_date)->toDateString())
+                                : null,
+                            'application_status' => $application ? 'applied' : null,
                         ];
                     })
                     ->values();
@@ -206,27 +282,63 @@ class PlayerDashboardController extends Controller
             // 7. Upcoming Training Sessions (program reminders)
             $upcomingTraining = ProgramBooking::query()
                 ->with([
-                    'program:id,program_name,program_start,program_end,program_location,program_photo',
+                    'program:id,program_name,program_start,program_end,program_location,program_photo,user_id',
+                    'program.user:id,name,last_name,profile_image',
+                    'program.user.club:id,user_id,club_name,club_logo',
                     'bookingTime:id,time',
                 ])
                 ->where('athlete_profile_id', $athlete->id)
                 ->where('status', '!=', 'cancelled')
                 ->whereHas('program', function ($query) use ($today) {
-                    $query->whereDate('program_start', '>=', $today);
+                    $query->whereDate('program_end', '>=', $today);
                 })
                 ->orderBy('created_at', 'desc')
                 ->limit(5)
                 ->get()
-                ->map(function (ProgramBooking $booking) {
+                ->map(function (ProgramBooking $booking) use ($today) {
+                    $programStart = $booking->program?->program_start;
+                    $programEnd = $booking->program?->program_end;
+
+                    $status = 'Upcoming';
+                    if ($programStart && $programEnd) {
+                        $start = Carbon::parse($programStart);
+                        $end = Carbon::parse($programEnd);
+                        $now = Carbon::parse($today);
+
+                        if ($now->between($start, $end)) {
+                            $status = 'In Progress';
+                        } elseif ($now->gt($end)) {
+                            $status = 'Completed';
+                        }
+                    }
+
+                    // Identify Provider (Club or Coach)
+                    $providerName = 'Unknown Provider';
+                    $providerImage = null;
+
+                    if ($booking->program?->user) {
+                        $user = $booking->program->user;
+                        if ($user->club) {
+                            $providerName = $user->club->club_name;
+                            $providerImage = $user->club->club_logo ? asset($user->club->club_logo) : ($user->profile_image ? asset($user->profile_image) : null);
+                        } else {
+                            $providerName = $user->name . ' ' . $user->last_name;
+                            $providerImage = $user->profile_image ? asset($user->profile_image) : null;
+                        }
+                    }
+
                     return [
                         'booking_id' => $booking->id,
+                        'status' => $status,
+                        'provider_name' => $providerName,
+                        'provider_image' => $providerImage,
                         'program' => [
                             'id' => $booking->program?->id,
                             'name' => $booking->program?->program_name,
                             'location' => $booking->program?->program_location,
-                            'start_date' => optional($booking->program?->program_start)->format('l, h:i A'),
-                            'start_date_full' => optional($booking->program?->program_start)->toDateString(),
-                            'end_date' => optional($booking->program?->program_end)->toDateString(),
+                            'start_date' => $programStart ? Carbon::parse($programStart)->format('l, h:i A') : null,
+                            'start_date_full' => $programStart ? Carbon::parse($programStart)->toDateString() : null,
+                            'end_date' => $programEnd ? Carbon::parse($programEnd)->toDateString() : null,
                             'photo' => ! empty($booking->program?->program_photo) ? asset($booking->program->program_photo) : null,
                         ],
                         'session_time' => $booking->bookingTime?->time,
@@ -246,11 +358,21 @@ class PlayerDashboardController extends Controller
                     'id' => $athlete->id,
                     'name' => trim((string) $athlete->name . ' ' . (string) $athlete->last_name),
                     'image' => ! empty($athlete->image) ? asset($athlete->image) : null,
-                    'position' => $athlete->primary_position,
+                    'position' => [
+                        'id' => $athlete->primary_position ? (int) $athlete->primary_position : null,
+                        'name' => $athlete->primaryPosition?->name,
+                    ],
+                    'secondary_position' => [
+                        'id' => $athlete->secondary_position ? (int) $athlete->secondary_position : null,
+                        'name' => $athlete->secondaryPosition?->name,
+                    ],
                     'age' => $playerAge,
                     'jersey_number' => $athlete->jersey_number,
                     'city' => $athlete->city,
                     'country' => $athlete->country,
+                    'city_id' => $athlete->city_id ? (int) $athlete->city_id : null,
+                    'country_id' => $athlete->country_id ? (int) $athlete->country_id : null,
+                    'location' => $this->resolveLocationPayload($athlete->city_id, $athlete->country_id, $athlete->city, $athlete->country),
                     'privacy_setting' => $athlete->privacy_setting,
                 ],
                 'summary' => [

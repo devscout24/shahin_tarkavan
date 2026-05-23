@@ -1,20 +1,26 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Backend\Admin\AdminController;
-use App\Http\Controllers\Backend\CoachController;
 use App\Http\Controllers\Backend\AdminProfileController;
+use App\Http\Controllers\Backend\CityController;
+use App\Http\Controllers\Backend\CoachController;
+use App\Http\Controllers\Backend\CoachPositionController;
 use App\Http\Controllers\Backend\CommissionController;
 use App\Http\Controllers\Backend\CompetitionLevelController;
+use App\Http\Controllers\Backend\CountryController;
 use App\Http\Controllers\Backend\DynamicPageController;
+use App\Http\Controllers\Backend\EcosystemController;
+use App\Http\Controllers\Backend\LandingPageController;
 use App\Http\Controllers\Backend\OrganizationTypeController;
 use App\Http\Controllers\Backend\PlayerPositionController;
 use App\Http\Controllers\Backend\ProgramBookingPaymentController;
-use App\Http\Controllers\Backend\CoachPositionController;
 use App\Http\Controllers\Backend\RolePermissionController;
 use App\Http\Controllers\Backend\SettingsController;
+use App\Http\Controllers\Backend\SportOptionController;
 use App\Http\Controllers\Backend\SubscriptionPlanController;
 use App\Http\Controllers\Backend\UserController;
+use Illuminate\Support\Facades\Route;
+
 
 
 Route::controller(AdminController::class)->group(function () {
@@ -25,6 +31,27 @@ Route::controller(AdminController::class)->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/admin/profile', [AdminProfileController::class, 'index'])->name('admin.profile');
     Route::post('/admin/profile', [AdminProfileController::class, 'update'])->name('admin.profile.update');
+
+    Route::prefix('admin/landing-page')->name('admin.landing.')->middleware('permission:manage settings')->group(function () {
+        Route::get('/hero', [LandingPageController::class, 'hero'])->name('hero');
+        Route::post('/hero', [LandingPageController::class, 'updateHero'])->name('hero.update');
+
+        Route::get('/stats', [LandingPageController::class, 'stats'])->name('stats');
+        Route::post('/stats', [LandingPageController::class, 'updateStats'])->name('stats.update');
+
+        Route::get('/ecosystem', [EcosystemController::class, 'index'])->name('ecosystem');
+        Route::post('/ecosystem', [EcosystemController::class, 'store'])->name('ecosystem.store');
+        Route::delete('/ecosystem/delete/{id}', [EcosystemController::class, 'destroy'])->name('ecosystem.delete');
+
+        Route::get('/how-it-works', [LandingPageController::class, 'howItWorks'])->name('how_it_works');
+        Route::post('/how-it-works', [LandingPageController::class, 'updateHowItWorks'])->name('how_it_works.update');
+
+        Route::get('/features', [LandingPageController::class, 'features'])->name('features');
+        Route::post('/features', [LandingPageController::class, 'storeFeature'])->name('features.store');
+
+        Route::get('/reviews', [LandingPageController::class, 'reviews'])->name('reviews');
+        Route::post('/reviews', [LandingPageController::class, 'storeReview'])->name('reviews.store');
+    });
 
     Route::prefix('admin/settings')->name('admin.settings.')->middleware('permission:manage settings')->group(function () {
         Route::get('/smtp', [SettingsController::class, 'smtp'])->name('smtp');
@@ -39,6 +66,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/stripe', [SettingsController::class, 'stripe'])->name('stripe');
         Route::post('/stripe', [SettingsController::class, 'updateStripe'])->name('stripe.update');
 
+        Route::get('/voting', [SettingsController::class, 'voting'])->name('voting');
+        Route::post('/voting', [SettingsController::class, 'updateVoting'])->name('voting.update');
+
         Route::get('/dynamic-page', [DynamicPageController::class, 'index'])->name('dynamic.page');
         Route::get('/dynamic-page/data', [DynamicPageController::class, 'data'])->name('dynamic.page.data');
         Route::post('/dynamic-page', [DynamicPageController::class, 'store'])->name('dynamic.page.store');
@@ -52,6 +82,20 @@ Route::middleware('auth')->group(function () {
         Route::get('/organization-types/{organizationType}/edit', [OrganizationTypeController::class, 'edit'])->name('organization.types.edit');
         Route::put('/organization-types/{organizationType}', [OrganizationTypeController::class, 'update'])->name('organization.types.update');
         Route::delete('/organization-types/{organizationType}', [OrganizationTypeController::class, 'destroy'])->name('organization.types.destroy');
+
+        Route::get('/countries', [CountryController::class, 'index'])->name('countries');
+        Route::get('/countries/data', [CountryController::class, 'data'])->name('countries.data');
+        Route::post('/countries', [CountryController::class, 'store'])->name('countries.store');
+        Route::get('/countries/{country}/edit', [CountryController::class, 'edit'])->name('countries.edit');
+        Route::put('/countries/{country}', [CountryController::class, 'update'])->name('countries.update');
+        Route::delete('/countries/{country}', [CountryController::class, 'destroy'])->name('countries.destroy');
+
+        Route::get('/cities', [CityController::class, 'index'])->name('cities');
+        Route::get('/cities/data', [CityController::class, 'data'])->name('cities.data');
+        Route::post('/cities', [CityController::class, 'store'])->name('cities.store');
+        Route::get('/cities/{city}/edit', [CityController::class, 'edit'])->name('cities.edit');
+        Route::put('/cities/{city}', [CityController::class, 'update'])->name('cities.update');
+        Route::delete('/cities/{city}', [CityController::class, 'destroy'])->name('cities.destroy');
 
         Route::get('/commissions', [CommissionController::class, 'index'])->name('commissions');
         Route::get('/commissions/data', [CommissionController::class, 'data'])->name('commissions.data');
@@ -109,6 +153,15 @@ Route::middleware('auth')->group(function () {
         Route::get('/{playerPosition}/edit', [PlayerPositionController::class, 'edit'])->name('edit');
         Route::put('/{playerPosition}', [PlayerPositionController::class, 'update'])->name('update');
         Route::delete('/{playerPosition}', [PlayerPositionController::class, 'destroy'])->name('destroy');
+    });
+
+    Route::prefix('admin/sport-options')->name('admin.sport-options.')->middleware('permission:manage settings')->group(function () {
+        Route::get('/', [SportOptionController::class, 'index'])->name('index');
+        Route::get('/data', [SportOptionController::class, 'data'])->name('data');
+        Route::post('/', [SportOptionController::class, 'store'])->name('store');
+        Route::get('/{sportOption}/edit', [SportOptionController::class, 'edit'])->name('edit');
+        Route::put('/{sportOption}', [SportOptionController::class, 'update'])->name('update');
+        Route::delete('/{sportOption}', [SportOptionController::class, 'destroy'])->name('destroy');
     });
 
     Route::prefix('admin/coach-positions')->name('admin.coach-positions.')->middleware('permission:manage settings')->group(function () {

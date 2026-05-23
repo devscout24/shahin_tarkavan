@@ -67,19 +67,57 @@
     </a>
 
     <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto">
-      <i class="bi bi-chevron-left d-block d-xl-none align-middle"></i>
+      <i class="align-middle bi bi-chevron-left d-block d-xl-none"></i>
     </a>
   </div>
 
-  <div class="menu-divider mt-0"></div>
+  <div class="mt-0 menu-divider"></div>
   <div class="menu-inner-shadow"></div>
 
-  <ul class="menu-inner py-1">
+  <ul class="py-1 menu-inner">
     <li class="menu-item {{ request()->routeIs('admin.dashboard') ? 'active' : '' }}">
       <a href="{{ route('admin.dashboard') }}" class="menu-link">
         <i class="menu-icon bi bi-speedometer2"></i>
         <div class="text-truncate">Dashboard</div>
       </a>
+    </li>
+
+    {{-- Landing Page Section --}}
+    <li class="menu-item {{ request()->routeIs('admin.landing.*') ? 'active open' : '' }}">
+      <a href="javascript:void(0);" class="menu-link menu-toggle">
+        <i class="menu-icon bi bi-layout-text-window-reverse"></i>
+        <div class="text-truncate">Landing Page</div>
+      </a>
+      <ul class="menu-sub">
+        <li class="menu-item {{ request()->routeIs('admin.landing.hero') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.hero') }}" class="menu-link">
+            <div class="text-truncate">Baner Section</div>
+          </a>
+        </li>        <li class="menu-item {{ request()->routeIs('admin.landing.stats') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.stats') }}" class="menu-link">
+            <div class="text-truncate">Stats Section</div>
+          </a>
+        </li>
+        <li class="menu-item {{ request()->routeIs('admin.landing.ecosystem') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.ecosystem') }}" class="menu-link">
+            <div class="text-truncate">Ecosystem Section</div>
+          </a>
+        </li>
+        <li class="menu-item {{ request()->routeIs('admin.landing.how_it_works') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.how_it_works') }}" class="menu-link">
+            <div class="text-truncate">How It Works</div>
+          </a>
+        </li>
+        <li class="menu-item {{ request()->routeIs('admin.landing.features') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.features') }}" class="menu-link">
+            <div class="text-truncate">Features</div>
+          </a>
+        </li>        <li class="menu-item {{ request()->routeIs('admin.landing.reviews') ? 'active' : '' }}">
+          <a href="{{ route('admin.landing.reviews') }}" class="menu-link">
+            <div class="text-truncate">Trusted Reviews</div>
+          </a>
+        </li>
+      </ul>
     </li>
 
 
@@ -125,12 +163,22 @@
       </a>
     </li>
 
+    <li class="menu-item {{ request()->routeIs('admin.sport-options.*') ? 'active' : '' }}">
+      <a href="{{ route('admin.sport-options.index') }}" class="menu-link">
+        <i class="menu-icon bi bi-bicycle"></i>
+        <div class="text-truncate">Sport Options</div>
+      </a>
+    </li>
+
     <li class="menu-item {{ request()->routeIs('admin.coach-positions.*') ? 'active' : '' }}">
       <a href="{{ route('admin.coach-positions.index') }}" class="menu-link">
         <i class="menu-icon bi bi-person-badge"></i>
         <div class="text-truncate">Coach Positions</div>
       </a>
     </li>
+
+
+
 
 
 
@@ -161,6 +209,11 @@
             <div class="text-truncate">Stripe Setup</div>
           </a>
         </li>
+        <li class="menu-item {{ request()->routeIs('admin.settings.voting') ? 'active' : '' }}">
+          <a href="{{ route('admin.settings.voting') }}" class="menu-link">
+            <div class="text-truncate">Voting Limits</div>
+          </a>
+        </li>
         <li class="menu-item {{ request()->routeIs('admin.settings.dynamic.page*') ? 'active' : '' }}">
           <a href="{{ route('admin.settings.dynamic.page') }}" class="menu-link">
             <div class="text-truncate">Dynamic Page</div>
@@ -169,6 +222,16 @@
         <li class="menu-item {{ request()->routeIs('admin.settings.organization.types*') ? 'active' : '' }}">
           <a href="{{ route('admin.settings.organization.types') }}" class="menu-link">
             <div class="text-truncate">Organization Types</div>
+          </a>
+        </li>
+        <li class="menu-item {{ request()->routeIs('admin.settings.countries*') ? 'active' : '' }}">
+          <a href="{{ route('admin.settings.countries') }}" class="menu-link">
+            <div class="text-truncate">Countries</div>
+          </a>
+        </li>
+        <li class="menu-item {{ request()->routeIs('admin.settings.cities*') ? 'active' : '' }}">
+          <a href="{{ route('admin.settings.cities') }}" class="menu-link">
+            <div class="text-truncate">Cities</div>
           </a>
         </li>
         <li class="menu-item {{ request()->routeIs('admin.settings.commissions*') ? 'active' : '' }}">
@@ -274,3 +337,4 @@
 
 
 </style>
+

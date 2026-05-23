@@ -19,6 +19,7 @@ return new class extends Migration
             $table->unsignedBigInteger('opponent_club_id')->nullable();
             $table->string("location")->nullable();
             $table->string("field_opportunity")->nullable();
+            $table->decimal("upto_age", 10, 2)->nullable();
             $table->foreign('club_team_id')->references('id')->on('club_teams')->onDelete('cascade');
             $table->foreign('opponent_club_id')->references('id')->on('users')->onDelete('set null');
             $table->timestamps();

@@ -11,6 +11,8 @@ class Commission extends Model
 
     protected $fillable = [
         'name',
+        'applies_to',
+        'user_id',
         'type',
         'amount',
         'status',
@@ -21,5 +23,10 @@ class Commission extends Model
         return [
             'amount' => 'decimal:2',
         ];
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id', 'id');
     }
 }

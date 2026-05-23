@@ -12,6 +12,7 @@ class ProgramBooking extends Model
         'parent_id',
         'coach_id',
         'booking_time_id',
+        'booking_date',
         'status',
         'stripe_payment_intent_id',
         'stripe_session_id',
@@ -39,6 +40,7 @@ class ProgramBooking extends Model
             'after_commission_amount' => 'decimal:2',
             'commission_amount' => 'decimal:2',
             'payout_amount' => 'decimal:2',
+            'booking_date' => 'date',
             'payout_at' => 'datetime',
         ];
     }
@@ -63,8 +65,18 @@ class ProgramBooking extends Model
         return $this->belongsTo(User::class, 'coach_id', 'id');
     }
 
+    public function club()
+    {
+        return $this->belongsTo(User::class, 'club_id', 'id');
+    }
+
     public function bookingTime()
     {
         return $this->belongsTo(ErProgramTime::class, 'booking_time_id', 'id');
+    }
+
+    public function bookingDateTime()
+    {
+        return $this->hasOne(BookingDateAndTime::class, 'program_booking_id', 'id');
     }
 }

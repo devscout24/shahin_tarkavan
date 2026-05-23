@@ -29,6 +29,8 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>Name</th>
+                                    <th>Applies To</th>
+                                    <th>Specific Target</th>
                                     <th>Type</th>
                                     <th>Amount</th>
                                     <th>Status</th>
@@ -57,6 +59,23 @@
                         <div class="mb-3">
                             <label class="form-label">Name</label>
                             <input type="text" name="name" id="name" class="form-control" placeholder="Platform Commission" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Applies To</label>
+                            <select name="applies_to" id="applies_to" class="form-select" required>
+                                <option value="all">All Programs</option>
+                                <option value="coach">Coach Programs</option>
+                                <option value="club">Club Programs</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3" id="target-user-wrapper" style="display: none;">
+                            <label class="form-label">Specific Coach/Club (Optional)</label>
+                            <select name="user_id" id="user_id" class="form-select">
+                                <option value="">All Selected Role</option>
+                            </select>
+                            <small class="text-muted">Leave empty to apply this commission to all users of selected role.</small>
                         </div>
 
                         <div class="mb-3">
@@ -101,6 +120,30 @@ $(function () {
     const $form = $('#commission-form');
     const $errorBox = $('#form-errors');
     const $successBox = $('#form-success');
+    const targetUsers = @json($targetUsers ?? []);
+
+    function rebuildTargetUsers(selectedRole, selectedUserId = '') {
+        const $select = $('#user_id');
+        const role = (selectedRole || 'all').toLowerCase();
+        $select.empty();
+        $select.append('<option value="">All Selected Role</option>');
+
+        if (role === 'all') {
+            $('#target-user-wrapper').hide();
+            return;
+        }
+
+        const options = targetUsers.filter(function (user) {
+            return (user.role || '').toLowerCase() === role;
+        });
+
+        options.forEach(function (user) {
+            const selected = String(selectedUserId) === String(user.id) ? ' selected' : '';
+            $select.append('<option value="' + user.id + '"' + selected + '>' + user.label + '</option>');
+        });
+
+        $('#target-user-wrapper').show();
+    }
 
     function showErrors(xhr) {
         const errors = xhr.responseJSON?.errors || {};
@@ -120,6 +163,8 @@ $(function () {
     function resetForm() {
         $form[0].reset();
         $('#commission_id').val('');
+        $('#applies_to').val('all');
+        rebuildTargetUsers('all', '');
         $('#type').val('percentage');
         $('#status').val('active');
         $('#form-title').text('Create Commission');
@@ -138,6 +183,8 @@ $(function () {
         columns: [
             { data: 'id', name: 'id' },
             { data: 'name', name: 'name' },
+            { data: 'applies_to_badge', name: 'applies_to', orderable: false, searchable: false },
+            { data: 'target_user', name: 'user_id', orderable: false, searchable: false },
             { data: 'type_badge', name: 'type', orderable: false, searchable: false },
             { data: 'display_amount', name: 'amount', orderable: false, searchable: false },
             { data: 'status_badge', name: 'status', orderable: false, searchable: false },
@@ -155,6 +202,8 @@ $(function () {
         const isUpdate = commissionId !== '';
         const payload = {
             name: $('#name').val(),
+            applies_to: $('#applies_to').val(),
+            user_id: $('#user_id').val(),
             type: $('#type').val(),
             amount: $('#amount').val(),
             status: $('#status').val(),
@@ -199,6 +248,8 @@ $(function () {
                 const commission = res.data;
                 $('#commission_id').val(commission.id);
                 $('#name').val(commission.name || '');
+                $('#applies_to').val(commission.applies_to || 'all');
+                rebuildTargetUsers(commission.applies_to || 'all', commission.user_id || '');
                 $('#type').val(commission.type || 'percentage');
                 $('#amount').val(commission.amount || '');
                 $('#status').val(commission.status || 'active');
@@ -244,6 +295,13 @@ $(function () {
     $('#reset-btn').on('click', function () {
         resetForm();
     });
+
+    $('#applies_to').on('change', function () {
+        rebuildTargetUsers($(this).val(), '');
+    });
+
+    rebuildTargetUsers($('#applies_to').val(), '');
 });
 </script>
 @endpush
+

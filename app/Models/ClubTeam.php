@@ -13,6 +13,7 @@ class ClubTeam extends Model
         'age_group',
         'image',
         'competition_level_id',
+        'gender',
     ];
 
     public function club()
