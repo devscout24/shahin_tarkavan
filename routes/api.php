@@ -3,7 +3,7 @@
 use App\Http\Controllers\Api\AuthOtpController;
 use App\Http\Controllers\Api\SettingsApiController;
 use Illuminate\Support\Facades\Route;
-
+use Illuminate\Support\Facades\Broadcast;
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthOtpController::class, 'register']);
     Route::post('/signup', [AuthOtpController::class, 'signup']);
@@ -48,3 +48,5 @@ Route::middleware(['auth:api', 'permission:manage settings'])->prefix('settings'
 
 
 require __DIR__ . '/shahin.php';
+
+

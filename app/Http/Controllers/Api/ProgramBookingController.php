@@ -187,6 +187,7 @@ class ProgramBookingController extends Controller
     public function bookProgram(Request $request)
     {
         $user = Auth::guard('api')->user();
+        // dd($user);
 
         try {
             if (! $user) {

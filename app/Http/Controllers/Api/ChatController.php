@@ -114,11 +114,14 @@ class ChatController extends Controller
                 $chat->image_id  = null;
             }
 
+            Log::info("Broadcasting ChatEvent for conversation: {$conversationId}", [
+                'sender_id' => $authId,
+                'receiver_id' => $receiverId
+            ]);
 
             broadcast(new ChatEvent($chat))->toOthers();
 
-
-
+            Log::info("ChatEvent broadcast finished for conversation: {$conversationId}");
 
             return $this->success($chat, 'Message sent successfully');
         } catch (\Exception $e) {
@@ -153,10 +156,13 @@ class ChatController extends Controller
 
             $messages = Chat::where('conversation_id', $conversation_id)
                 ->orderBy('created_at', 'asc')
-                ->with('chatimage')
+                ->with(['chatimage', 'sender.coachProfile', 'sender.athleteProfile', 'sender.club', 'receiver.coachProfile', 'receiver.athleteProfile', 'receiver.club'])
                 ->get();
 
             $messages->each(function ($msg) {
+                // SENDER & RECEIVER IMAGES
+                $msg->sender_image   = $this->resolveUserImage($msg->sender);
+                $msg->receiver_image = $this->resolveUserImage($msg->receiver);
 
                 // IMAGE FROM chatimage TABLE
                 if ($msg->chatimage) {

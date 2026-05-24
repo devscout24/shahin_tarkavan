@@ -62,7 +62,7 @@ class ParentChildController extends Controller
 
         try {
             DB::beginTransaction();
-              dd($request->file('profile_image'));
+             
             $user = Auth::guard('api')->user();
             $child = new AthleteProfiles();
             $child->name = $request->name;

@@ -10,7 +10,7 @@
  @endphp
  @include('Backend.partial.style')
    @stack('styles')
-
+   @vite('resources/js/app.js')
   <body>
     <!-- Layout wrapper -->
     <div class="layout-wrapper layout-content-navbar">

@@ -16,18 +16,20 @@ class ChatEvent implements ShouldBroadcastNow
 
     public $chat;
 
+
+
     public function __construct(Chat $chat)
     {
 
-        $chat->load('chatimage');
+        $chat->load('chatimage', 'sender.athleteProfile', 'sender.coachProfile', 'sender.club', 'receiver.athleteProfile', 'receiver.coachProfile', 'receiver.club');
         $this->chat = $chat;
     }
 
     public function broadcastOn()
     {
-        Log::info('enter broadcast: '.$this->chat->conversation_id);
+        Log::info('enter broadcast: ' . $this->chat->conversation_id);
 
-        return new PrivateChannel('chat-conversation.'.$this->chat->conversation_id);
+        return new PrivateChannel('chat-conversation.' . $this->chat->conversation_id);
     }
 
     public function broadcastAs()
@@ -44,7 +46,8 @@ class ChatEvent implements ShouldBroadcastNow
                 'sender_id'       => $this->chat->sender_id,
                 'receiver_id'     => $this->chat->receiver_id,
                 'conversation_id' => $this->chat->conversation_id,
-
+                'sender_image'    => $this->chat->sender ? $this->chat->sender->getUserImage() : null,
+                'receiver_image'  => $this->chat->receiver ? $this->chat->receiver->getUserImage() : null,
                 'image_url'       => $this->chat->chatimage
                     ? asset($this->chat->chatimage->image)
                     : null,

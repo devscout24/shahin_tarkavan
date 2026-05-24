@@ -149,6 +149,27 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasMany(ClubOrganization::class, 'user_id', 'id');
     }
 
+    public function getUserImage()
+    {
+        if ($this->profile_image) {
+            return asset($this->profile_image);
+        }
+
+        if ($this->athleteProfile && $this->athleteProfile->image) {
+            return asset($this->athleteProfile->image);
+        }
+
+        if ($this->coachProfile && $this->coachProfile->coach_profile_pic) {
+            return asset($this->coachProfile->coach_profile_pic);
+        }
+
+        if ($this->club && $this->club->club_logo) {
+            return asset($this->club->club_logo);
+        }
+
+        return null;
+    }
+
     public function clubOrganizations()
     {
         return $this->hasMany(ClubOrganization::class, 'user_id', 'id');

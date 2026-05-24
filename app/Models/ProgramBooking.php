@@ -65,11 +65,6 @@ class ProgramBooking extends Model
         return $this->belongsTo(User::class, 'coach_id', 'id');
     }
 
-    public function club()
-    {
-        return $this->belongsTo(User::class, 'club_id', 'id');
-    }
-
     public function bookingTime()
     {
         return $this->belongsTo(ErProgramTime::class, 'booking_time_id', 'id');
